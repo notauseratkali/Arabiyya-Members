@@ -50,6 +50,28 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Global CORS Middleware to allow the static GitHub Pages frontend to connect securely to this Cloud Run backend
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    if (origin.includes('github.io') || origin.includes('localhost') || origin.includes('run.app')) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Accept, Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 function sendWelcomeEmailIfNeeded(member: any, oldStatus: string, newStatus: string) {
   const isNowActive = newStatus === 'Approved' || newStatus === 'Active';
   const wasPreviouslyActive = oldStatus === 'Approved' || oldStatus === 'Active';

@@ -11,8 +11,20 @@ export async function fetchWithRetry(
   retries = 2,
   delay = 800
 ): Promise<Response> {
+  // Dynamically prefix the live Cloud Run backend URL when hosted on static environments like GitHub Pages
+  let targetUrl = url;
+  if (url.startsWith('/api/')) {
+    const isGitHubPages = window.location.hostname.endsWith('github.io');
+    const isLocalStaticClient = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port !== '3000';
+    
+    if (isGitHubPages || isLocalStaticClient) {
+      const backendBaseUrl = 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+      targetUrl = `${backendBaseUrl}${url}`;
+    }
+  }
+
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(targetUrl, options);
 
     // If endpoint returns 404 or HTML page for an /api/ request on static hosting (e.g. GitHub Pages)
     const contentType = res.headers.get('content-type') || '';
