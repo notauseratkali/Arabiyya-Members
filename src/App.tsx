@@ -166,14 +166,23 @@ function AppContent() {
         window.history.replaceState({}, '', '/signin');
         setCurrentPath('/signin');
       }
+    } else {
+      if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
+        console.log('[AppContent] Authenticated user on auth/root route => redirecting to /dashboard');
+        window.history.replaceState({}, '', '/dashboard');
+        setCurrentPath('/dashboard');
+      }
     }
   }, [user, isLoading, currentPath]);
 
   const renderPage = () => {
     console.log('[AppContent] renderPage rendering:', { currentPath, userEmail: user?.email });
 
-    // Public pages accessible to all users (unauthenticated and authenticated)
+    // Public pages accessible to all users
     if (currentPath === '/login' || currentPath === '/signin') {
+      if (user) {
+        return <DashboardPage onNavigate={navigate} />;
+      }
       return <LoginPage onNavigate={navigate} />;
     }
     if (currentPath === '/join' || currentPath === '/signup') {
