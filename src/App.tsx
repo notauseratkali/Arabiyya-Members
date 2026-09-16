@@ -68,7 +68,8 @@ function AppContent() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const norm = getNormalizedPath();
     if (norm === '/' || norm === '/login') {
-      return '/signin';
+      const savedUser = safeStorage.getItem('arabiyya_auth_user');
+      return savedUser ? '/dashboard' : '/signin';
     }
     return norm;
   });
@@ -101,7 +102,7 @@ function AppContent() {
   }, []);
 
   const navigate = (path: string) => {
-    let targetPath = (!path || path === '/' || path === '/login') ? '/signin' : path;
+    let targetPath = (!path || path === '/' || path === '/login') ? (user ? '/dashboard' : '/signin') : path;
     if (targetPath === '/login') targetPath = '/signin';
     
     // If not logged in and target is a protected route, redirect to /signin
@@ -118,7 +119,7 @@ function AppContent() {
   useEffect(() => {
     const handlePopState = () => {
       const norm = getNormalizedPath();
-      let targetPath = (norm === '/' || norm === '/login') ? '/signin' : norm;
+      let targetPath = (norm === '/' || norm === '/login') ? (user ? '/dashboard' : '/signin') : norm;
       const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
       if (!user && !publicRoutes.includes(targetPath)) {
         targetPath = '/signin';
@@ -135,7 +136,7 @@ function AppContent() {
 
     // Clean up SPA redirect query parameter (?p=/...) if present
     if (window.location.search && window.location.search.includes('p=')) {
-      const cleanPath = currentPath || '/signin';
+      const cleanPath = currentPath || (user ? '/dashboard' : '/signin');
       window.history.replaceState({}, '', cleanPath);
     }
 
@@ -148,10 +149,10 @@ function AppContent() {
         setCurrentPath('/signin');
       }
     } else {
-      // If visiting root / or /login: redirect to /signin (Login Page)
-      if (currentPath === '/login' || currentPath === '/') {
-        window.history.replaceState({}, '', '/signin');
-        setCurrentPath('/signin');
+      // If logged in and on root /, /login, or /signin: redirect to /dashboard
+      if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
+        window.history.replaceState({}, '', '/dashboard');
+        setCurrentPath('/dashboard');
       }
     }
   }, [user, isLoading, currentPath]);
@@ -173,6 +174,9 @@ function AppContent() {
       return <JoinPage onNavigate={navigate} />;
     }
     if (currentPath === '/login' || currentPath === '/signin') {
+      if (user) {
+        return <DashboardPage onNavigate={navigate} />;
+      }
       return <LoginPage onNavigate={navigate} />;
     }
     if (currentPath === '/forgot-password') {
