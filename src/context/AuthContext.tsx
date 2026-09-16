@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [adminRoles, setAdminRoles] = useState<{ id: string; name: string; description: string; assignedUsernames: string[] }[]>([]);
 
   useEffect(() => {
@@ -67,31 +67,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedUser = safeStorage.getItem('arabiyya_auth_user');
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+        // If we have a cached local session, release loading immediately to prevent blank/stuck screen
+        setIsLoading(false);
       } catch (e) {
         safeStorage.removeItem('arabiyya_auth_user');
       }
     }
 
-    // Failsafe timer: If Firebase Auth takes more than 1500ms (e.g. offline, firewalled, slow network), release isLoading
+    // Failsafe timer: Ensure isLoading is ALWAYS released within 500ms regardless of network/auth state
     const failsafeTimer = setTimeout(() => {
       setIsLoading(false);
-    }, 1500);
+    }, 500);
 
-    // Listen to Firebase Auth state
+    // Listen to Firebase Auth state safely
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      clearTimeout(failsafeTimer);
       setFirebaseUser(fbUser);
 
       if (fbUser) {
         try {
-          // Check if user has Firestore profile
           const userDocRef = doc(db, 'users', fbUser.uid);
           const userSnapshot = await getDoc(userDocRef);
 
           if (userSnapshot.exists()) {
             const data = userSnapshot.data() as AuthUser;
-            // Check if user is admin by email, ID Card Number, or existing role
             const isUserAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
                                 fbUser.email === 'admin@arabiyyarovers.net' || 
                                 fbUser.email === 'nazihnafiz@gmail.com' ||
@@ -106,7 +106,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 data.isAdmin = true;
                 needsUpdate = true;
               }
-              // MERGE: Admin -> Secretary
               const newRole = 'Secretary';
               if (data.role !== newRole) {
                 data.role = newRole;
@@ -132,7 +131,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(data);
             safeStorage.setItem('arabiyya_auth_user', JSON.stringify(data));
           } else {
-            // Check if user is admin
             const isAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
                             fbUser.email === 'admin@arabiyyarovers.net' || 
                             fbUser.email === 'nazihnafiz@gmail.com' ||
@@ -157,10 +155,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             safeStorage.setItem('arabiyya_auth_user', JSON.stringify(fallbackUser));
           }
         } catch (err) {
-          console.error('[Firebase Auth Sync Error]:', err);
+          console.warn('[Firebase Auth Sync Exception]:', err);
         }
       }
 
+      // Always guarantee release of loading state
+      clearTimeout(failsafeTimer);
       setIsLoading(false);
     });
 

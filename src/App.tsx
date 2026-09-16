@@ -176,18 +176,7 @@ function AppContent() {
   }, [user, isLoading, currentPath]);
 
   const renderPage = () => {
-    console.log('[AppContent] renderPage rendering:', { currentPath, isLoading, userEmail: user?.email });
-
-    if (isLoading) {
-      return (
-        <div className="min-h-[70vh] flex items-center justify-center bg-gray-50">
-          <div className="text-center space-y-3">
-            <div className="w-10 h-10 border-3 border-maroon border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loading Arabiyya Members...</p>
-          </div>
-        </div>
-      );
-    }
+    console.log('[AppContent] renderPage rendering:', { currentPath, userEmail: user?.email });
 
     // 1. Explicit public pages (unauthenticated & authenticated)
     if (currentPath === '/join' || currentPath === '/signup') {
