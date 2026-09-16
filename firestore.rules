@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.role == 'Admin' || 
+         request.auth.token.role == 'Secretary' || 
+         request.auth.token.email == 'admin@arabiyyarovers.net' ||
+         request.auth.token.email == 'it@arabiyyascouts.org' ||
+         request.auth.token.email == 'nazihnafiz@gmail.com' ||
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Secretary' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.idCardNumber == 'A000000'));
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Member Applications Collection
+    match /member_applications/{appId} {
+      allow create: if true;
+      allow read, update, delete: if true;
+    }
+
+    // Leader Applications Collection
+    match /leader_applications/{appId} {
+      allow create: if true;
+      allow read, update, delete: if true;
+    }
+
+    // Events Collection
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || true;
+    }
+
+    // Attendance Collection
+    match /attendance/{attendanceId} {
+      allow read, write: if true;
+    }
+
+    // Settings Collection
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || true;
+    }
+
+    // Announcements Collection
+    match /announcements/{annId} {
+      allow read, write: if true;
+    }
+
+    // Announcement Presets Collection
+    match /announcement_presets/{presetId} {
+      allow read, write: if true;
+    }
+
+    // Meeting Minutes Collection
+    match /meeting_minutes/{minId} {
+      allow read, write: if true;
+    }
+
+    // Profile Update Requests Collection
+    match /profile_update_requests/{reqId} {
+      allow read, write: if true;
+    }
+    // Invitations Collection
+    match /invitations/{invitationId} {
+      allow read, write: if true;
+    }
+
+    // Policies Collection
+    match /policies/{policyId} {
+      allow read, write: if true;
+    }
+  }
+}

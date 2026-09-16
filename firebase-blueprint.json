@@ -1,0 +1,252 @@
+{
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Unique user identifier or UID"
+        },
+        "username": {
+          "type": "string",
+          "description": "Username for member access"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full formal name"
+        },
+        "commonName": {
+          "type": "string",
+          "description": "Scout callsign or common name"
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role: Admin, Rover, Explorer, Rover Candidate, Explorer Candidate"
+        },
+        "idCardNumber": {
+          "type": "string",
+          "description": "National ID Card number"
+        },
+        "investitureDate": {
+          "type": "string",
+          "description": "Date of scout investiture"
+        },
+        "status": {
+          "type": "string",
+          "description": "Active, Processing, Suspended"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp of record creation"
+        }
+      }
+    },
+    "MemberApplication": {
+      "collection": "member_applications",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Application record ID"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Applicant full name"
+        },
+        "idCardNumber": {
+          "type": "string",
+          "description": "National identity number"
+        },
+        "role": {
+          "type": "string",
+          "description": "Target scout section (Rover / Explorer)"
+        },
+        "email": {
+          "type": "string",
+          "description": "Applicant email"
+        },
+        "status": {
+          "type": "string",
+          "description": "Application status (Processing, Approved, Invested)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Submission date"
+        }
+      }
+    },
+    "LeaderApplication": {
+      "collection": "leader_applications",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Leader application ID"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Leader applicant full name"
+        },
+        "idCardNumber": {
+          "type": "string",
+          "description": "National ID number"
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email"
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Contact phone"
+        },
+        "status": {
+          "type": "string",
+          "description": "Interview status"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Submission timestamp"
+        }
+      }
+    },
+    "Event": {
+      "collection": "events",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Unique event ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Event title"
+        },
+        "eventType": {
+          "type": "string",
+          "description": "Type of event (Camp, Workshop, Council, etc.)"
+        },
+        "location": {
+          "type": "string",
+          "description": "Event venue / location"
+        },
+        "fromDateTime": {
+          "type": "string",
+          "description": "Start timestamp"
+        },
+        "toDateTime": {
+          "type": "string",
+          "description": "End timestamp"
+        },
+        "assignedSections": {
+          "type": "array",
+          "description": "Target sections (Rover, Explorer, etc.)"
+        }
+      }
+    },
+    "Attendance": {
+      "collection": "attendance",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Attendance log ID"
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Associated Event ID"
+        },
+        "memberId": {
+          "type": "string",
+          "description": "Scout ID or username"
+        },
+        "status": {
+          "type": "string",
+          "description": "Present, Absent, Excused, Pending Review"
+        },
+        "excuseReason": {
+          "type": "string",
+          "description": "Explanation provided for absence"
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "Submission timestamp"
+        }
+      }
+    },
+    "Setting": {
+      "collection": "settings",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Setting key identifier (general, smtp, system)"
+        },
+        "leader_notification_emails": {
+          "type": "array",
+          "description": "List of council email recipients"
+        },
+        "rover_notification_emails": {
+          "type": "array",
+          "description": "List of rover email recipients"
+        },
+        "event_types": {
+          "type": "array",
+          "description": "Configured event categories"
+        },
+        "group_logo": {
+          "type": "string",
+          "description": "Brand logo URL or optimized asset representation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated timestamp"
+        }
+      }
+    },
+    "Invitation": {
+      "collection": "invitations",
+      "fields": {
+        "token": {
+          "type": "string",
+          "description": "Unique invitation token"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the invitee"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "Expiration timestamp"
+        },
+        "used": {
+          "type": "boolean",
+          "description": "Whether the invitation has been used"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Submission timestamp"
+        }
+      }
+    },
+    "Policy": {
+      "collection": "policies",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Unique policy identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Policy section title"
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon name for the policy"
+        },
+        "content": {
+          "type": "array",
+          "description": "Array of policy paragraphs"
+        }
+      }
+    }
+  }
+}

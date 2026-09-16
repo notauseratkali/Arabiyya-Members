@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 900" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg-deep-blue { fill: #007fc7; }
+      .bg-light-blue { fill: #a4d5f0; }
+      .bg-maroon { fill: #690d0d; }
+      .white-stroke { stroke: #ffffff; stroke-width: 10; stroke-linejoin: round; stroke-linecap: round; }
+      .thin-white-stroke { stroke: #ffffff; stroke-width: 4; }
+      .banner-text { font-family: 'Times New Roman', Times, Georgia, serif; font-weight: 900; fill: #ffffff; letter-spacing: 2px; }
+    </style>
+  </defs>
+
+  <g id="fleur-de-lis">
+    <!-- Outer White Separation Layer / Silhouette for Crisp Outlines -->
+
+    <!-- Left Wing (Light Blue) -->
+    <path class="white-stroke bg-light-blue" d="
+      M 380,380 
+      C 320,360 210,360 110,370 
+      C 20,380 2,420 2,470 
+      C 2,560 60,650 90,760 
+      C 93,770 95,750 105,710 
+      C 130,640 200,610 300,620 
+      C 210,630 180,720 190,830 
+      C 220,840 270,830 300,810 
+      C 280,730 320,660 380,630 
+      Z
+    " />
+
+    <!-- Right Wing (Light Blue) -->
+    <path class="white-stroke bg-light-blue" d="
+      M 420,380 
+      C 480,360 590,360 690,370 
+      C 780,380 798,420 798,470 
+      C 798,560 740,650 710,760 
+      C 707,770 705,750 695,710 
+      C 670,640 600,610 500,620 
+      C 590,630 620,720 610,830 
+      C 580,840 530,830 500,810 
+      C 520,730 480,660 420,630 
+      Z
+    " />
+
+    <!-- Central Stem & Top Leaf (Deep Blue) -->
+    <path class="white-stroke bg-deep-blue" d="
+      M 400,8 
+      C 430,70 550,170 550,320 
+      C 550,430 500,520 465,580 
+      L 465,650 
+      L 485,830 
+      C 485,830 485,860 400,892 
+      C 315,860 315,830 315,830 
+      L 335,650 
+      L 335,580 
+      C 300,520 250,430 250,320 
+      C 250,170 370,70 400,8 
+      Z
+    " />
+
+    <!-- Center Vertical White Split Line -->
+    <line x1="400" y1="80" x2="400" y2="850" class="thin-white-stroke" stroke-linecap="round" />
+
+    <!-- Left Maroon Star -->
+    <g transform="translate(175, 510) rotate(-6) scale(1.15)">
+      <polygon class="bg-maroon white-stroke" stroke-width="4" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+      <polygon class="bg-maroon" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+    </g>
+
+    <!-- Right Maroon Star -->
+    <g transform="translate(625, 510) rotate(6) scale(1.15)">
+      <polygon class="bg-maroon white-stroke" stroke-width="4" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+      <polygon class="bg-maroon" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+    </g>
+
+    <!-- Center Banner ASG ROVERS -->
+    <g id="banner">
+      <rect x="220" y="650" width="360" height="72" rx="36" class="bg-maroon white-stroke" stroke-width="8" />
+      <text x="400" y="698" class="banner-text" font-size="31" text-anchor="middle">ASG ROVERS</text>
+    </g>
+  </g>
+</svg>

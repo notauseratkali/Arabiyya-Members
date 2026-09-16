@@ -1,0 +1,6 @@
+{
+  "name": "Arabiyya Members",
+  "description": "Arabiyya Members - Membership, attendance, and investiture management system for Arabiyya Rover Network (Arabiyya Rovers).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

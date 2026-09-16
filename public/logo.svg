@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1000" width="100%" height="100%">
+  <defs>
+    <style>
+      .scout-blue { fill: #007fc7; }
+      .scout-light-blue { fill: #a3d4ef; }
+      .scout-maroon { fill: #660a0a; }
+      .white-stroke-thick { stroke: #ffffff; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
+      .white-stroke-med { stroke: #ffffff; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
+      .white-stroke-thin { stroke: #ffffff; stroke-width: 5; stroke-linecap: round; }
+      .banner-text { font-family: 'Times New Roman', Times, Georgia, serif; font-weight: 900; fill: #ffffff; letter-spacing: 1.5px; }
+    </style>
+  </defs>
+
+  <g id="asg-rover-emblem">
+    <!-- ========================================== -->
+    <!-- 1. LEFT WING (Sky Blue)                    -->
+    <!-- ========================================== -->
+    <path class="scout-light-blue white-stroke-thick" d="
+      M 430,420 
+      C 370,400 240,400 120,410 
+      C 20,420 2,465 2,520 
+      C 2,620 70,720 105,840 
+      C 108,850 110,830 120,780 
+      C 150,700 230,670 340,680 
+      C 240,690 205,790 215,910 
+      C 250,920 305,910 340,890 
+      C 315,800 360,725 430,690 
+      Z
+    " />
+
+    <!-- ========================================== -->
+    <!-- 2. RIGHT WING (Sky Blue)                   -->
+    <!-- ========================================== -->
+    <path class="scout-light-blue white-stroke-thick" d="
+      M 470,420 
+      C 530,400 660,400 780,410 
+      C 880,420 898,465 898,520 
+      C 898,620 830,720 795,840 
+      C 792,850 790,830 780,780 
+      C 750,700 670,670 560,680 
+      C 660,690 695,790 685,910 
+      C 650,920 595,910 560,890 
+      C 585,800 540,725 470,690 
+      Z
+    " />
+
+    <!-- ========================================== -->
+    <!-- 3. CENTRAL SPEAR & STEM (Deep Blue)       -->
+    <!-- ========================================== -->
+    <path class="scout-blue white-stroke-thick" d="
+      M 450,15 
+      C 485,90 625,200 625,370 
+      C 625,490 570,590 528,655 
+      L 528,730 
+      L 550,925 
+      L 450,990 
+      L 350,925 
+      L 372,730 
+      L 372,655 
+      C 330,590 275,490 275,370 
+      C 275,200 415,90 450,15 
+      Z
+    " />
+
+    <!-- Center Vertical White Split Line with Bottom Notch -->
+    <line x1="450" y1="95" x2="450" y2="945" class="white-stroke-thin" stroke-linecap="round" />
+    <!-- White Notch at Bottom Tip -->
+    <polygon points="450,935 438,958 450,950 462,958" fill="#ffffff" />
+
+    <!-- ========================================== -->
+    <!-- 4. MAROON 5-POINT STARS ON WINGS           -->
+    <!-- ========================================== -->
+    <!-- Left Star -->
+    <g transform="translate(195, 565) rotate(-5) scale(1.3)">
+      <polygon class="scout-maroon" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+    </g>
+
+    <!-- Right Star -->
+    <g transform="translate(705, 565) rotate(5) scale(1.3)">
+      <polygon class="scout-maroon" points="0,-35 10,-10 35,-10 15,5 22,30 0,15 -22,30 -15,5 -35,-10 -10,-10" />
+    </g>
+
+    <!-- ========================================== -->
+    <!-- 5. ASG ROVERS MAROON BANNER                -->
+    <!-- ========================================== -->
+    <g id="banner" transform="translate(450, 755)">
+      <!-- Hexagonal / Pill Maroon Banner with White Outline -->
+      <path class="scout-maroon white-stroke-med" d="
+        M -190,-38 
+        L 190,-38 
+        C 225,-38 235,-20 235,0 
+        C 235,20 225,38 190,38 
+        L -190,38 
+        C -225,38 -235,20 -235,0 
+        C -235,-20 -225,-38 -190,-38 
+        Z
+      " />
+      <text x="0" y="12" class="banner-text" font-size="34" text-anchor="middle">ASG ROVERS</text>
+    </g>
+  </g>
+</svg>
