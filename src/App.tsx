@@ -35,8 +35,13 @@ function AppContent() {
   const [splashActive, setSplashActive] = useState(true);
   const [currentPath, setCurrentPath] = useState<string>(() => {
     let path = window.location.pathname;
-    // Support static host hash routing fallback if someone enters via /#/path
-    if (window.location.hash && window.location.hash.startsWith('#/')) {
+    // Support static host SPA redirect query (?p=/...)
+    if (window.location.search && window.location.search.includes('p=')) {
+      const match = window.location.search.match(/[?&]p=([^&]*)/);
+      if (match && match[1]) {
+        path = decodeURIComponent(match[1]).replace(/~and~/g, '&');
+      }
+    } else if (window.location.hash && window.location.hash.startsWith('#/')) {
       path = window.location.hash.slice(1);
     }
     if (!path || path === '/' || path === '/login') {
@@ -90,7 +95,15 @@ function AppContent() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const path = window.location.pathname;
+      let path = window.location.pathname;
+      if (window.location.search && window.location.search.includes('p=')) {
+        const match = window.location.search.match(/[?&]p=([^&]*)/);
+        if (match && match[1]) {
+          path = decodeURIComponent(match[1]).replace(/~and~/g, '&');
+        }
+      } else if (window.location.hash && window.location.hash.startsWith('#/')) {
+        path = window.location.hash.slice(1);
+      }
       let targetPath = (!path || path === '/') ? (user ? '/dashboard' : '/signin') : path;
       if (targetPath === '/login') targetPath = '/signin';
       const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];

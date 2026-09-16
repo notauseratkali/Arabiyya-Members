@@ -46,11 +46,11 @@ export const Header: React.FC<HeaderProps> = ({
     fetchWithRetry('/api/settings')
       .then(res => res.json())
       .then(data => {
-        if (data && data.supported_apps) {
+        if (data && data.supported_apps && Array.isArray(data.supported_apps)) {
           setApps(data.supported_apps);
         }
       })
-      .catch(err => console.error('[Header] Error loading supported apps:', err));
+      .catch(() => {});
   };
 
   const fetchAnnouncements = () => {
@@ -66,11 +66,17 @@ export const Header: React.FC<HeaderProps> = ({
       .then(data => {
         if (Array.isArray(data)) {
           setAnnouncements(data);
-          const unread = data.filter(item => !item.isRead).length;
+          const unread = data.filter(item => item && !item.isRead).length;
           setUnreadCount(unread);
+        } else {
+          setAnnouncements([]);
+          setUnreadCount(0);
         }
       })
-      .catch(err => console.error('[Header] Error loading announcements:', err));
+      .catch(() => {
+        setAnnouncements([]);
+        setUnreadCount(0);
+      });
   };
 
   const handleMarkRead = async (announcementId?: string, all = false) => {
