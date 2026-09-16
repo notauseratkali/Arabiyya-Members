@@ -17,8 +17,20 @@
     <script>
       (function() {
         if (!document.querySelector('base')) {
+          var path = window.location.pathname;
+          var parts = path.split('/').filter(Boolean);
+          var knownRoutes = [
+            'signin', 'login', 'join', 'signup', 'forgot-password', 'track', 'policy',
+            'dashboard', 'events', 'attendance', 'meeting-minutes', 'profile',
+            'members', 'courses', 'logbook', 'log-book', 'progress', 'finance',
+            'syllabus', 'requests', 'announcements', 'settings', 'admin', '404', 'index.html'
+          ];
+          var baseHref = '/';
+          if (window.location.hostname.indexOf('github.io') !== -1 && parts.length > 0 && !knownRoutes.includes(parts[0])) {
+            baseHref = '/' + parts[0] + '/';
+          }
           var baseEl = document.createElement('base');
-          baseEl.href = window.location.origin + '/';
+          baseEl.href = window.location.origin + baseHref;
           document.head.insertBefore(baseEl, document.head.firstChild);
         }
       })();

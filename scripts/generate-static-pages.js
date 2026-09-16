@@ -22,13 +22,17 @@ const routes = [
   'members',
   'courses',
   'logbook',
+  'log-book',
   'progress',
   'finance',
   'syllabus',
   'requests',
   'announcements',
   'settings',
-  'admin'
+  'admin',
+  'admin/requests',
+  'admin/settings',
+  'admin/syllabus'
 ];
 
 async function generateStaticPages() {
@@ -47,8 +51,12 @@ async function generateStaticPages() {
 
   // Generate static pages and subfolder index.html for all routes
   for (const route of routes) {
-    // 1. Route as filename: dist/signin.html
+    // 1. Route as filename: dist/signin.html (handling nested routes like admin/requests.html)
     const fileRoutePath = path.join(distDir, `${route}.html`);
+    const fileParentDir = path.dirname(fileRoutePath);
+    if (!fs.existsSync(fileParentDir)) {
+      fs.mkdirSync(fileParentDir, { recursive: true });
+    }
     fs.writeFileSync(fileRoutePath, htmlContent, 'utf-8');
 
     // 2. Route as subfolder: dist/signin/index.html
