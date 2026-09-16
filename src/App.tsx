@@ -68,8 +68,7 @@ function AppContent() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const norm = getNormalizedPath();
     if (norm === '/' || norm === '/login') {
-      const savedUser = safeStorage.getItem('arabiyya_auth_user');
-      return savedUser ? '/dashboard' : '/signin';
+      return '/signin';
     }
     return norm;
   });
@@ -102,7 +101,7 @@ function AppContent() {
   }, []);
 
   const navigate = (path: string) => {
-    let targetPath = (!path || path === '/') ? (user ? '/dashboard' : '/signin') : path;
+    let targetPath = (!path || path === '/' || path === '/login') ? '/signin' : path;
     if (targetPath === '/login') targetPath = '/signin';
     
     // If not logged in and target is a protected route, redirect to /signin
@@ -119,7 +118,7 @@ function AppContent() {
   useEffect(() => {
     const handlePopState = () => {
       const norm = getNormalizedPath();
-      let targetPath = (norm === '/' || norm === '/login') ? (user ? '/dashboard' : '/signin') : norm;
+      let targetPath = (norm === '/' || norm === '/login') ? '/signin' : norm;
       const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
       if (!user && !publicRoutes.includes(targetPath)) {
         targetPath = '/signin';
@@ -143,10 +142,10 @@ function AppContent() {
         setCurrentPath('/signin');
       }
     } else {
-      // If logged in and on /signin or /login: redirect to /dashboard
-      if (currentPath === '/signin' || currentPath === '/login' || currentPath === '/') {
-        window.history.replaceState({}, '', '/dashboard');
-        setCurrentPath('/dashboard');
+      // If visiting root / or /login: redirect to /signin (Login Page)
+      if (currentPath === '/login' || currentPath === '/') {
+        window.history.replaceState({}, '', '/signin');
+        setCurrentPath('/signin');
       }
     }
   }, [user, isLoading, currentPath]);
