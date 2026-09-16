@@ -1079,6 +1079,9 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const queryInput = (username || '').trim().toLowerCase();
+  const queryPass = (password || '').trim();
+
+  console.log(`[Login Attempt] Username/ID/Email: "${queryInput}", Password Length: ${queryPass.length}`);
 
   // Flexible and robust matching for administrative accounts
   const adminEmails = ['it@arabiyyascouts.org', 'nazihnafiz@gmail.com', 'admin@arabiyyarovers.net'];
@@ -1094,7 +1097,8 @@ app.post('/api/auth/login', async (req, res) => {
                       adminIdCards.includes(queryInput) || 
                       adminEmails.includes(queryInput);
 
-  if (isDocAdmin && (password === ADMIN_USER.passwordHash || password === 'admin123' || password === '123')) {
+  if (isDocAdmin && (queryPass === ADMIN_USER.passwordHash || queryPass === 'admin123' || queryPass === '123')) {
+    console.log(`[Login Success] Admin user authenticated: "${queryInput}"`);
     return res.json({
       success: true,
       user: {
@@ -1124,18 +1128,19 @@ app.post('/api/auth/login', async (req, res) => {
     const matchesId = uName === queryInput || idCard === queryInput || email === queryInput;
     
     // Support phone number without country code as initial password for bulk imported members
-    const normInputPassword = (password || '').trim().replace(/\D/g, '');
+    const normInputPassword = queryPass.replace(/\D/g, '');
     const normMemberPhone = (m.phoneNumber || m.mobileNumber || '').replace(/\D/g, '');
     const normMemberPhoneNoCc = normMemberPhone.startsWith('960') && normMemberPhone.length >= 10 ? normMemberPhone.slice(3) : normMemberPhone;
     
-    const matchesPassword = m.passwordHash === password || 
-                            (password === 'password' && !m.passwordHash) ||
+    const matchesPassword = m.passwordHash === queryPass || 
+                            (queryPass === 'password' && !m.passwordHash) ||
                             (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc);
                             
     return matchesId && matchesPassword;
   });
 
   if (!member) {
+    console.warn(`[Login Failed] No match found for user: "${queryInput}"`);
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
 
@@ -1157,6 +1162,8 @@ app.post('/api/auth/login', async (req, res) => {
       error: 'Account locked: Your application is currently under review or awaiting investiture. Please track your application status at /track.'
     });
   }
+
+  console.log(`[Login Success] Member user authenticated: "${queryInput}" (id: ${member.id})`);
 
   return res.json({
     success: true,
