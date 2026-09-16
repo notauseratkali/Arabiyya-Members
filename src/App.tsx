@@ -133,6 +133,12 @@ function AppContent() {
   useEffect(() => {
     if (isLoading) return;
 
+    // Clean up SPA redirect query parameter (?p=/...) if present
+    if (window.location.search && window.location.search.includes('p=')) {
+      const cleanPath = currentPath || '/signin';
+      window.history.replaceState({}, '', cleanPath);
+    }
+
     const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
 
     if (!user) {

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { safeStorage } from '../utils/safeStorage';
+import { fetchWithRetry } from '../utils/fetchUtils';
 
 interface LogoContextType {
   logoUrl: string;
@@ -54,18 +55,21 @@ export const LogoProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshLogo = useCallback(async (): Promise<string> => {
     try {
-      const res = await fetch(`/api/settings?_t=${Date.now()}`, { cache: 'no-store' });
+      const res = await fetchWithRetry(`/api/settings?_t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
-        const data = await res.json();
-        if (data && data.group_logo) {
-          setLogoState(prev => {
-            if (prev !== data.group_logo) {
-              updateFavicon(data.group_logo);
-            }
+        const text = await res.text();
+        if (text && text.trim().startsWith('{')) {
+          const data = JSON.parse(text);
+          if (data && data.group_logo) {
+            setLogoState(prev => {
+              if (prev !== data.group_logo) {
+                updateFavicon(data.group_logo);
+              }
+              return data.group_logo;
+            });
+            safeStorage.setItem('app_custom_logo', data.group_logo);
             return data.group_logo;
-          });
-          safeStorage.setItem('app_custom_logo', data.group_logo);
-          return data.group_logo;
+          }
         }
       }
     } catch (err) {

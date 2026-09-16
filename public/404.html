@@ -6,8 +6,12 @@
     <script>
       // Single Page Apps for GitHub Pages and static web hosts
       // MIT License https://github.com/rafgraph/spa-github-pages
-      var pathSegmentsToKeep = 0;
       var l = window.location;
+      var firstSegment = l.pathname.split('/')[1] || '';
+      var knownRoutes = ['signin', 'login', 'join', 'signup', 'forgot-password', 'track', 'policy', 'dashboard', 'events', 'attendance', 'meeting-minutes', 'profile', 'members', 'courses', 'logbook', 'progress', 'finance', 'syllabus', 'requests', 'announcements', 'settings', 'admin'];
+      var isGithubRepoPath = l.hostname.indexOf('github.io') !== -1 && firstSegment && !knownRoutes.includes(firstSegment);
+      var pathSegmentsToKeep = isGithubRepoPath ? 1 : 0;
+
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?p=/' +
