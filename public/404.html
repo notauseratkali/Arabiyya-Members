@@ -1,26 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Arabiyya Members</title>
-    <script>
-      // Single Page Apps for GitHub Pages and static web hosts
-      // MIT License https://github.com/rafgraph/spa-github-pages
-      var l = window.location;
-      var firstSegment = l.pathname.split('/')[1] || '';
-      var knownRoutes = ['signin', 'login', 'join', 'signup', 'forgot-password', 'track', 'policy', 'dashboard', 'events', 'attendance', 'meeting-minutes', 'profile', 'members', 'courses', 'logbook', 'progress', 'finance', 'syllabus', 'requests', 'announcements', 'settings', 'admin'];
-      var isGithubRepoPath = l.hostname.indexOf('github.io') !== -1 && firstSegment && !knownRoutes.includes(firstSegment);
-      var pathSegmentsToKeep = isGithubRepoPath ? 1 : 0;
-
-      l.replace(
-        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?p=/' +
-        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
-        (l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-        l.hash
-      );
-    </script>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="alternate icon" type="image/png" href="/logo.png" />
+    <meta name="description" content="Arabiyya Members - Membership, attendance, and investiture management system for Arabiyya Rover Network (Arabiyya Rovers)." />
+    <meta property="og:title" content="Arabiyya Members" />
+    <meta property="og:description" content="Arabiyya Members - Membership, attendance, and investiture management system for Arabiyya Rover Network (Arabiyya Rovers)." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
