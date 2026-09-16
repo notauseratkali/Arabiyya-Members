@@ -34,8 +34,15 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
     const queryInput = (username || '').trim().toLowerCase();
     const queryPass = (password || '').trim();
 
-    const isDocAdmin = queryInput === 'admin' || queryInput === 'a000000' || queryInput === 'it@arabiyyascouts.org';
-    if (isDocAdmin && queryPass === 'admin123') {
+    const adminEmails = ['it@arabiyyascouts.org', 'nazihnafiz@gmail.com', 'admin@arabiyyarovers.net'];
+    const adminUsernames = ['admin'];
+    const adminIdCards = ['a000000'];
+
+    const isDocAdmin = adminUsernames.includes(queryInput) || 
+                        adminIdCards.includes(queryInput) || 
+                        adminEmails.includes(queryInput);
+
+    if (isDocAdmin && (queryPass === 'admin123' || queryPass === '123')) {
       return new Response(JSON.stringify({ success: true, user: DEFAULT_ADMIN }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
