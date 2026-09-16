@@ -35,7 +35,7 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
     const queryPass = (password || '').trim();
 
     const isDocAdmin = queryInput === 'admin' || queryInput === 'a000000' || queryInput === 'it@arabiyyascouts.org';
-    if (isDocAdmin && (queryPass === 'admin123' || !queryPass)) {
+    if (isDocAdmin && queryPass === 'admin123') {
       return new Response(JSON.stringify({ success: true, user: DEFAULT_ADMIN }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
