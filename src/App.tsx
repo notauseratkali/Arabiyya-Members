@@ -66,15 +66,6 @@ function getNormalizedPath(): string {
     }
   }
 
-  console.log('[Router] getNormalizedPath =>', {
-    pathname: window.location.pathname,
-    search,
-    hash,
-    raw,
-    clean,
-    result
-  });
-
   return result;
 }
 
@@ -88,7 +79,6 @@ function AppContent() {
     if (norm === '/' || norm === '/login') {
       initPath = savedUser ? '/dashboard' : '/signin';
     }
-    console.log('[AppContent] Initial path state computed:', { norm, hasSavedUser: !!savedUser, initPath });
     return initPath;
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -125,7 +115,6 @@ function AppContent() {
       targetPath = '/signin';
     }
 
-    console.log('[AppContent] navigate requested:', { requested: path, resolved: targetPath, hasUser: !!user });
     window.history.pushState({}, '', targetPath);
     setCurrentPath(targetPath);
     window.scrollTo(0, 0);
@@ -139,7 +128,6 @@ function AppContent() {
       if (!user && !publicRoutes.includes(targetPath)) {
         targetPath = '/signin';
       }
-      console.log('[AppContent] popstate event handled:', { norm, targetPath, hasUser: !!user });
       setCurrentPath(targetPath);
     };
     window.addEventListener('popstate', handlePopState);
@@ -148,13 +136,10 @@ function AppContent() {
 
   // Route protection and redirection
   useEffect(() => {
-    console.log('[AppContent] Protection Effect evaluate:', { currentPath, isLoading, userEmail: user?.email });
-
     if (isLoading) return;
 
     if (window.location.search && window.location.search.includes('p=')) {
       const cleanPath = currentPath || (user ? '/dashboard' : '/signin');
-      console.log('[AppContent] Cleaning up ?p= parameter => replaceState to:', cleanPath);
       window.history.replaceState({}, '', cleanPath);
     }
 
@@ -162,13 +147,11 @@ function AppContent() {
 
     if (!user) {
       if (!publicRoutes.includes(currentPath) || currentPath === '/login' || currentPath === '/') {
-        console.log('[AppContent] Unauthenticated access => redirecting to /signin');
         window.history.replaceState({}, '', '/signin');
         setCurrentPath('/signin');
       }
     } else {
       if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
-        console.log('[AppContent] Authenticated user on auth/root route => redirecting to /dashboard');
         window.history.replaceState({}, '', '/dashboard');
         setCurrentPath('/dashboard');
       }
@@ -176,7 +159,6 @@ function AppContent() {
   }, [user, isLoading, currentPath]);
 
   const renderPage = () => {
-    console.log('[AppContent] renderPage rendering:', { currentPath, userEmail: user?.email });
 
     // Public pages accessible to all users
     if (currentPath === '/login' || currentPath === '/signin') {
