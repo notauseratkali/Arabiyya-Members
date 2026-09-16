@@ -162,15 +162,9 @@ function AppContent() {
 
     if (!user) {
       if (!publicRoutes.includes(currentPath) || currentPath === '/login' || currentPath === '/') {
-        console.log('[AppContent] Unauthenticated access to protected route => redirecting to /signin');
+        console.log('[AppContent] Unauthenticated access => redirecting to /signin');
         window.history.replaceState({}, '', '/signin');
         setCurrentPath('/signin');
-      }
-    } else {
-      if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
-        console.log('[AppContent] Authenticated user on auth page => redirecting to /dashboard');
-        window.history.replaceState({}, '', '/dashboard');
-        setCurrentPath('/dashboard');
       }
     }
   }, [user, isLoading, currentPath]);
@@ -178,15 +172,12 @@ function AppContent() {
   const renderPage = () => {
     console.log('[AppContent] renderPage rendering:', { currentPath, userEmail: user?.email });
 
-    // 1. Explicit public pages (unauthenticated & authenticated)
+    // Public pages accessible to all users (unauthenticated and authenticated)
+    if (currentPath === '/login' || currentPath === '/signin') {
+      return <LoginPage onNavigate={navigate} />;
+    }
     if (currentPath === '/join' || currentPath === '/signup') {
       return <JoinPage onNavigate={navigate} />;
-    }
-    if (currentPath === '/login' || currentPath === '/signin') {
-      if (user) {
-        return <DashboardPage onNavigate={navigate} />;
-      }
-      return <LoginPage onNavigate={navigate} />;
     }
     if (currentPath === '/forgot-password') {
       return <ForgotPasswordPage onNavigate={navigate} />;
