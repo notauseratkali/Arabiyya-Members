@@ -30,25 +30,48 @@ import { FinancePage } from './pages/FinancePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { safeStorage } from './utils/safeStorage';
 
+function getNormalizedPath(): string {
+  let raw = window.location.pathname;
+  if (window.location.search && window.location.search.includes('p=')) {
+    const match = window.location.search.match(/[?&]p=([^&]*)/);
+    if (match && match[1]) {
+      raw = decodeURIComponent(match[1]).replace(/~and~/g, '&');
+    }
+  } else if (window.location.hash && window.location.hash.startsWith('#/')) {
+    raw = window.location.hash.slice(1);
+  }
+
+  let clean = raw.replace(/\/+$/, '');
+  if (!clean) return '/';
+
+  const knownRoutes = [
+    '/signin', '/join', '/signup', '/forgot-password', '/track', '/policy',
+    '/dashboard', '/events', '/attendance', '/meeting-minutes', '/profile',
+    '/members', '/courses', '/logbook', '/log-book', '/progress', '/finance',
+    '/syllabus', '/requests', '/announcements', '/settings', '/admin',
+    '/admin/requests', '/admin/settings', '/admin/syllabus'
+  ];
+
+  if (clean === '/login') return '/signin';
+  if (knownRoutes.includes(clean)) return clean;
+
+  for (const r of knownRoutes) {
+    if (clean.endsWith(r)) return r;
+  }
+
+  return clean;
+}
+
 function AppContent() {
   const { user, isLoading } = useAuth();
   const [splashActive, setSplashActive] = useState(true);
   const [currentPath, setCurrentPath] = useState<string>(() => {
-    let path = window.location.pathname;
-    // Support static host SPA redirect query (?p=/...)
-    if (window.location.search && window.location.search.includes('p=')) {
-      const match = window.location.search.match(/[?&]p=([^&]*)/);
-      if (match && match[1]) {
-        path = decodeURIComponent(match[1]).replace(/~and~/g, '&');
-      }
-    } else if (window.location.hash && window.location.hash.startsWith('#/')) {
-      path = window.location.hash.slice(1);
-    }
-    if (!path || path === '/' || path === '/login') {
+    const norm = getNormalizedPath();
+    if (norm === '/' || norm === '/login') {
       const savedUser = safeStorage.getItem('arabiyya_auth_user');
       return savedUser ? '/dashboard' : '/signin';
     }
-    return path;
+    return norm;
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const touchStartX = React.useRef(0);
@@ -95,21 +118,11 @@ function AppContent() {
 
   useEffect(() => {
     const handlePopState = () => {
-      let path = window.location.pathname;
-      if (window.location.search && window.location.search.includes('p=')) {
-        const match = window.location.search.match(/[?&]p=([^&]*)/);
-        if (match && match[1]) {
-          path = decodeURIComponent(match[1]).replace(/~and~/g, '&');
-        }
-      } else if (window.location.hash && window.location.hash.startsWith('#/')) {
-        path = window.location.hash.slice(1);
-      }
-      let targetPath = (!path || path === '/') ? (user ? '/dashboard' : '/signin') : path;
-      if (targetPath === '/login') targetPath = '/signin';
+      const norm = getNormalizedPath();
+      let targetPath = (norm === '/' || norm === '/login') ? (user ? '/dashboard' : '/signin') : norm;
       const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
       if (!user && !publicRoutes.includes(targetPath)) {
         targetPath = '/signin';
-        window.history.replaceState({}, '', '/signin');
       }
       setCurrentPath(targetPath);
     };
