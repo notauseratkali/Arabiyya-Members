@@ -24,7 +24,6 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
   const [botLink, setBotLink] = useState('https://t.me/asgmembersbot');
   const [botUsername, setBotUsername] = useState('@asgmembersbot');
   const [requireStart, setRequireStart] = useState(false);
-  const [simulatedCode, setSimulatedCode] = useState<string | null>(null);
 
   const [telegramTag, setTelegramTag] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -46,21 +45,28 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             telegramTag: telegramTag || dispatchedTo,
-            mobileNumber: mobileNumber
+            mobileNumber: mobileNumber,
+            idCardNumber: idCardNumber.trim().toUpperCase(),
+            purpose: 'password-reset'
           })
         });
         const data = await res.json();
         if (data.started) {
-          setCheckStartResult({ started: true, message: data.message });
+          setCheckStartResult({ 
+            started: true, 
+            message: data.otpDelivered
+              ? 'Bot connected! Your password reset OTP was delivered to your private Telegram DM.'
+              : (data.message || 'Bot connected successfully!')
+          });
           setRequireStart(false); // Success! Auto-stops polling
         }
       } catch (err) {
         console.warn('Auto verification poll failed:', err);
       }
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(intervalId);
-  }, [requireStart, telegramTag, dispatchedTo, mobileNumber]);
+  }, [requireStart, telegramTag, dispatchedTo, mobileNumber, idCardNumber]);
 
   // Step 1: Send OTP
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -85,7 +91,6 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
       if (data.botLink) setBotLink(data.botLink);
       if (data.botUsername) setBotUsername(data.botUsername);
       if (data.requireStart) setRequireStart(true);
-      if (data.otpCode) setSimulatedCode(data.otpCode);
       setTelegramTag(data.telegramTag || '');
       setMobileNumber(data.mobileNumber || '');
       setDispatchedTo(data.dispatchedTo || '');
@@ -107,12 +112,19 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramTag: telegramTag || dispatchedTo,
-          mobileNumber: mobileNumber
+          mobileNumber: mobileNumber,
+          idCardNumber: idCardNumber.trim().toUpperCase(),
+          purpose: 'password-reset'
         })
       });
       const data = await res.json();
       if (data.started) {
-        setCheckStartResult({ started: true, message: data.message });
+        setCheckStartResult({ 
+          started: true, 
+          message: data.otpDelivered
+            ? 'Bot connected! Your password reset OTP was delivered to your private Telegram DM.'
+            : (data.message || 'Bot connected successfully!')
+        });
         setRequireStart(false); // Success! Hide warning
       } else {
         setCheckStartResult({ started: false, message: data.message });
@@ -235,18 +247,18 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
               <div className="flex items-start space-x-2">
                 <Send className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong className="block text-sky-950 font-bold mb-0.5">Private Telegram Bot OTP Dispatched</strong>
-                  <p className="text-sky-900 leading-relaxed">
-                    Verification code sent directly to your private Telegram chat handle.
+                  <strong className="block text-sky-950 font-bold mb-0.5">Private Telegram Bot DM Delivery</strong>
+                  <p className="text-sky-900 leading-relaxed font-medium">
+                    Private Only: OTPs are sent strictly to your private Telegram DM.
                   </p>
                 </div>
               </div>
 
               {requireStart && (
                 <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-950 text-xs font-semibold space-y-1.5">
-                  <p>⚠️ Haven't received the private message yet?</p>
-                  <p className="font-normal text-[11px]">
-                    Telegram requires you to click <strong>/start</strong> on our chatbot first before it can send you private DMs.
+                  <p className="font-bold text-amber-950">⚠️ Private Only: Bot Activation Required</p>
+                  <p className="font-normal text-amber-900 text-[11px] leading-relaxed">
+                    Telegram requires you to start a private conversation with our bot first. Tap below to open <strong>{botUsername}</strong> and send <strong>/start</strong>. Your password reset OTP will be sent immediately once the bot is started!
                   </p>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <a
@@ -277,12 +289,6 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
                     : 'bg-rose-50 border-rose-200 text-rose-950'
                 }`}>
                   {checkStartResult.started ? '✅ ' : '❌ '} {checkStartResult.message}
-                </div>
-              )}
-
-              {simulatedCode && (
-                <div className="p-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 text-[11px] font-mono">
-                  [Console/Dev OTP Code]: <strong>{simulatedCode}</strong>
                 </div>
               )}
             </div>

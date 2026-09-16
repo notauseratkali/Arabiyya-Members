@@ -21,7 +21,6 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
   const [botLink, setBotLink] = useState('https://t.me/asgmembersbot');
   const [botUsername, setBotUsername] = useState('@asgmembersbot');
   const [requireStart, setRequireStart] = useState(false);
-  const [simulatedCode, setSimulatedCode] = useState<string | null>(null);
 
   const [telegramTag, setTelegramTag] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -43,21 +42,28 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             telegramTag: telegramTag || dispatchedTo,
-            mobileNumber: mobileNumber
+            mobileNumber: mobileNumber,
+            idCardNumber: idCardNumber.trim().toUpperCase(),
+            purpose: 'tracking'
           })
         });
         const data = await res.json();
         if (data.started) {
-          setCheckStartResult({ started: true, message: data.message });
+          setCheckStartResult({ 
+            started: true, 
+            message: data.otpDelivered 
+              ? 'Bot connected! Your verification OTP code was delivered to your private Telegram DM.' 
+              : (data.message || 'Bot connected successfully!') 
+          });
           setRequireStart(false); // Success! Auto-stops polling
         }
       } catch (err) {
         console.warn('Auto verification poll failed:', err);
       }
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(intervalId);
-  }, [requireStart, telegramTag, dispatchedTo, mobileNumber]);
+  }, [requireStart, telegramTag, dispatchedTo, mobileNumber, idCardNumber]);
 
   const [applicationData, setApplicationData] = useState<{
     id: string;
@@ -93,7 +99,6 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
       if (data.botLink) setBotLink(data.botLink);
       if (data.botUsername) setBotUsername(data.botUsername);
       if (data.requireStart) setRequireStart(true);
-      if (data.otpCode) setSimulatedCode(data.otpCode);
       setTelegramTag(data.telegramTag || '');
       setMobileNumber(data.mobileNumber || '');
       setDispatchedTo(data.dispatchedTo || '');
@@ -115,12 +120,19 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramTag: telegramTag || dispatchedTo,
-          mobileNumber: mobileNumber
+          mobileNumber: mobileNumber,
+          idCardNumber: idCardNumber.trim().toUpperCase(),
+          purpose: 'tracking'
         })
       });
       const data = await res.json();
       if (data.started) {
-        setCheckStartResult({ started: true, message: data.message });
+        setCheckStartResult({ 
+          started: true, 
+          message: data.otpDelivered 
+            ? 'Bot connected! Your verification OTP code was delivered to your private Telegram DM.' 
+            : (data.message || 'Bot connected successfully!') 
+        });
         setRequireStart(false); // Success! Hide warning
       } else {
         setCheckStartResult({ started: false, message: data.message });
@@ -298,9 +310,9 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
                 <div className="flex items-start space-x-2">
                   <Send className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block text-sky-950 font-bold mb-0.5">Private Telegram Bot OTP Dispatched</strong>
-                    <p className="text-sky-900 leading-relaxed">
-                      Verification codes are sent <strong>exclusively to your personal Telegram DM</strong>.
+                    <strong className="block text-sky-950 font-bold mb-0.5">Private Telegram Bot DM Delivery</strong>
+                    <p className="text-sky-900 leading-relaxed font-medium">
+                      Private Only: OTPs are sent strictly to your private Telegram DM.
                     </p>
                   </div>
                 </div>
@@ -308,9 +320,9 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
 
               {requireStart && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-950 text-xs font-semibold space-y-1.5">
-                  <p>⚠️ Haven't received the private message yet?</p>
-                  <p className="font-normal">
-                    Telegram requires you to click <strong>/start</strong> on our chatbot first before it can send you private DMs.
+                  <p className="font-bold text-amber-950">⚠️ Private Only: Bot Activation Required</p>
+                  <p className="font-normal text-amber-900 leading-relaxed">
+                    Telegram requires you to start a private conversation with our bot first. Tap below to open <strong>{botUsername}</strong> and send <strong>/start</strong>. Your OTP code will be sent immediately once the bot is started!
                   </p>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <a
@@ -320,7 +332,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
                       className="inline-flex items-center space-x-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-md transition-colors"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      <span>Click here to open {botUsername} & tap /start</span>
+                      <span>Open {botUsername} & tap /start</span>
                     </a>
                     <button
                       type="button"
@@ -341,12 +353,6 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
                     : 'bg-rose-50 border-rose-200 text-rose-950'
                 }`}>
                   {checkStartResult.started ? '✅ ' : '❌ '} {checkStartResult.message}
-                </div>
-              )}
-
-              {simulatedCode && (
-                <div className="p-2.5 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 text-[11px] font-mono">
-                  [Dev/Console OTP Code]: <strong>{simulatedCode}</strong>
                 </div>
               )}
             </div>

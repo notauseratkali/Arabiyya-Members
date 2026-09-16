@@ -83,5 +83,20 @@ service cloud.firestore {
     match /policies/{policyId} {
       allow read, write: if true;
     }
+
+    // OTPs Collection
+    match /otps/{otpId} {
+      allow read, write: if true;
+    }
+
+    // Members Collection
+    match /members/{memberId} {
+      allow read, write: if true;
+    }
+
+    // Log Book Entries Collection
+    match /logbook_entries/{entryId} {
+      allow read, write: if true;
+    }
   }
 }

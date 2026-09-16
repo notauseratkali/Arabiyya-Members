@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { safeStorage } from '../utils/safeStorage';
 
 interface LogoContextType {
   logoUrl: string;
@@ -31,21 +32,13 @@ function updateFavicon(url: string) {
 
 export const LogoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [logoUrl, setLogoState] = useState<string>(() => {
-    try {
-      return localStorage.getItem('app_custom_logo') || '/logo.svg';
-    } catch {
-      return '/logo.svg';
-    }
+    return safeStorage.getItem('app_custom_logo') || '/logo.svg';
   });
 
   const setLogoUrl = useCallback((url: string) => {
     setLogoState(url);
     updateFavicon(url);
-    try {
-      localStorage.setItem('app_custom_logo', url);
-    } catch (e) {
-      console.warn('[LogoContext] Could not cache logo to localStorage:', e);
-    }
+    safeStorage.setItem('app_custom_logo', url);
     window.dispatchEvent(new CustomEvent('arabiyya_logo_updated', { detail: url }));
     window.dispatchEvent(new Event('storage'));
   }, []);
@@ -54,11 +47,7 @@ export const LogoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const defaultLogo = '/logo.svg';
     setLogoState(defaultLogo);
     updateFavicon(defaultLogo);
-    try {
-      localStorage.removeItem('app_custom_logo');
-    } catch (e) {
-      console.warn('[LogoContext] Could not clear logo from localStorage:', e);
-    }
+    safeStorage.removeItem('app_custom_logo');
     window.dispatchEvent(new CustomEvent('arabiyya_logo_updated', { detail: defaultLogo }));
     window.dispatchEvent(new Event('storage'));
   }, []);
@@ -75,11 +64,7 @@ export const LogoProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return data.group_logo;
           });
-          try {
-            localStorage.setItem('app_custom_logo', data.group_logo);
-          } catch {
-            // LocalStorage quota may be reached for high-res base64
-          }
+          safeStorage.setItem('app_custom_logo', data.group_logo);
           return data.group_logo;
         }
       }
@@ -104,17 +89,13 @@ export const LogoProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 3. Multi-tab storage listener
     const handleStorage = () => {
-      try {
-        const stored = localStorage.getItem('app_custom_logo');
-        if (stored) {
-          setLogoState(stored);
-          updateFavicon(stored);
-        } else {
-          setLogoState('/logo.svg');
-          updateFavicon('/logo.svg');
-        }
-      } catch {
+      const stored = safeStorage.getItem('app_custom_logo');
+      if (stored) {
+        setLogoState(stored);
+        updateFavicon(stored);
+      } else {
         setLogoState('/logo.svg');
+        updateFavicon('/logo.svg');
       }
     };
 

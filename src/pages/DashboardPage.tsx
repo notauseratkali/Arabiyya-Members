@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { safeStorage } from '../utils/safeStorage';
 import { calculateTimeRemainingForAward } from '../utils/awardTimeline';
 import { formatDateDDMMMYYYY, formatDateTimeDDMMMYYYY } from '../utils/dateUtils';
 import { 
@@ -39,7 +40,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [loadingPolicies, setLoadingPolicies] = useState(false);
 
   const [dailyDuties, setDailyDuties] = useState<{ [key: string]: boolean }>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem(`arabiyya_daily_duties_${user?.id}`) : null;
+    const saved = user?.id ? safeStorage.getItem(`arabiyya_daily_duties_${user.id}`) : null;
     return saved ? JSON.parse(saved) : {
       goodTurn: false,
       promiseReflect: false,
@@ -56,8 +57,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const toggleDuty = (key: string) => {
     const updated = { ...dailyDuties, [key]: !dailyDuties[key] };
     setDailyDuties(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(`arabiyya_daily_duties_${user?.id}`, JSON.stringify(updated));
+    if (user?.id) {
+      safeStorage.setItem(`arabiyya_daily_duties_${user.id}`, JSON.stringify(updated));
     }
   };
 
@@ -906,6 +907,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                     <div className="text-gray-600 leading-relaxed whitespace-pre-line">
                       {policy.content}
                     </div>
+                    {policy.imageUrl && (
+                      <div className="pt-2">
+                        <img
+                          src={policy.imageUrl}
+                          alt={policy.imageCaption || policy.title}
+                          className="max-h-60 max-w-full rounded-xl border border-gray-200 object-cover shadow-2xs"
+                        />
+                        {policy.imageCaption && (
+                          <p className="text-[11px] text-gray-500 italic mt-1">{policy.imageCaption}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))
               )}

@@ -477,178 +477,303 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
             {filterStatus === 'All' ? 'No events currently listed.' : `No events found with status "${filterStatus}".`}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 text-gray-700 font-bold uppercase tracking-wider border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3">Event Name</th>
-                  <th className="px-4 py-3">Schedule</th>
-                  <th className="px-4 py-3">Location</th>
-                  <th className="px-4 py-3">Status / Notes</th>
-                  <th className="px-4 py-3">Absence Window</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
-                {filteredEvents.map((evt) => {
-                  const record = attendanceRecords.find(a => a.eventId === evt.id);
-                  const locked = isLockedForMember(evt);
-                  const isAttended = record?.status === 'Attended';
-                  const evaluation = user ? evaluateEventRequirementForMember(evt, user) : { isRequired: true, isSuspended: false, badgeStyle: '', statusLabel: '', reason: '' };
-                  const isExempt = !evaluation.isRequired || evaluation.isSuspended;
-                  const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && (evt.signedUpMembers.includes(user.id) || evt.signedUpMembers.includes(user.memberId)));
+          <>
+            {/* Mobile Cards View (Visible on mobile screens) */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {filteredEvents.map((evt) => {
+                const record = attendanceRecords.find(a => a.eventId === evt.id);
+                const locked = isLockedForMember(evt);
+                const isAttended = record?.status === 'Attended';
+                const evaluation = user ? evaluateEventRequirementForMember(evt, user) : { isRequired: true, isSuspended: false, badgeStyle: '', statusLabel: '', reason: '' };
+                const isExempt = !evaluation.isRequired || evaluation.isSuspended;
+                const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && (evt.signedUpMembers.includes(user.id) || evt.signedUpMembers.includes(user.memberId)));
 
-                  return (
-                    <tr key={evt.id} className="hover:bg-gray-50/80">
-                      <td className="px-4 py-3 font-bold text-darkblue">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span>{evt.name}</span>
-                          {evt.isSignUpEvent && (
-                            <span className="px-1.5 py-0.5 bg-pink-50 text-pink-700 border border-pink-200 text-[10px] font-bold rounded-md flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
-                              Sign Up Event
-                            </span>
-                          )}
-                          {evt.requiredCities && evt.requiredCities.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md flex items-center gap-0.5">
-                              <MapPin className="w-2.5 h-2.5" />
-                              {evt.requiredCities.join(', ')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-gray-500 font-normal mt-0.5">{evt.eventType}</div>
-                      </td>
-
-                      <td className="px-4 py-3 text-gray-600">
-                        <div><span className="font-semibold">From:</span> {formatDateTimeDDMMMYYYY(evt.fromDateTime)}</div>
-                        <div className="text-[11px] text-gray-500"><span className="font-semibold">To:</span> {formatDateTimeDDMMMYYYY(evt.toDateTime)}</div>
-                      </td>
-
-                      <td className="px-4 py-3 text-gray-600">
-                        {evt.location}
-                      </td>
-
-                      <td className="px-4 py-3">
+                return (
+                  <div key={evt.id} className="p-4 space-y-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-darkblue text-sm">{evt.name}</h3>
+                        <div className="text-[11px] text-gray-500">{evt.eventType}</div>
+                      </div>
+                      <div>
                         {record ? (
-                          <div className="space-y-1">
-                            <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
-                              record?.status === 'Attended' ? 'bg-emerald-100 text-emerald-800' :
-                              record?.status === 'Excused' ? 'bg-blue-100 text-blue-800' :
-                              record?.status === 'Unable To Attend' ? 'bg-amber-100 text-amber-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {record?.status === 'Attended' && (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                                  {isSignedUp && (
-                                    <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
-                                  )}
-                                </>
-                              )}
-                              <span>{record?.status || 'Pending'}</span>
-                            </span>
-                            {isAttended ? (
-                              <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
-                                <span>✓</span>
-                                {isSignedUp && (
-                                  <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block" title="Signed Up Member" />
-                                )}
-                                <span>Verified {isSignedUp ? '(Signed Up Crew)' : '(No reason needed)'}</span>
-                              </div>
-                            ) : record.excuseReason ? (
-                              <div className="text-[11px] text-gray-500 italic max-w-xs truncate">
-                                Excuse: "{record.excuseReason}"
-                              </div>
-                            ) : null}
-                          </div>
+                          <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
+                            record?.status === 'Attended' ? 'bg-emerald-100 text-emerald-800' :
+                            record?.status === 'Excused' ? 'bg-blue-100 text-blue-800' :
+                            record?.status === 'Unable To Attend' ? 'bg-amber-100 text-amber-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {record?.status === 'Attended' && <CheckCircle2 className="w-3 h-3 text-emerald-700" />}
+                            <span>{record?.status || 'Pending'}</span>
+                          </span>
                         ) : isExempt ? (
-                          <div className="space-y-0.5">
-                            <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
-                              evaluation.isSuspended ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
-                            }`}>
-                              <span>{evaluation.isSuspended ? 'Voluntarily Suspended' : 'Location Exempt'}</span>
-                            </span>
-                            <div className="text-[10px] text-gray-500">
-                              {evaluation.reason}
-                            </div>
-                          </div>
+                          <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
+                            evaluation.isSuspended ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            <span>{evaluation.isSuspended ? 'Suspended' : 'Exempt'}</span>
+                          </span>
                         ) : (
-                          <span className="text-gray-400 italic">Not Recorded</span>
+                          <span className="text-[10px] text-gray-400 italic bg-gray-50 px-2 py-0.5 rounded-full">Not Recorded</span>
                         )}
-                      </td>
+                      </div>
+                    </div>
 
-                      <td className="px-4 py-3">
+                    {/* Badges */}
+                    <div className="flex flex-wrap gap-1">
+                      {evt.isSignUpEvent && (
+                        <span className="px-2 py-0.5 bg-pink-50 text-pink-700 border border-pink-200 text-[10px] font-bold rounded-md flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+                          Sign Up Event
+                        </span>
+                      )}
+                      {evt.requiredCities && evt.requiredCities.length > 0 && (
+                        <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" />
+                          {evt.requiredCities.join(', ')}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Schedule & Location */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-gray-600 bg-gray-50 p-2.5 rounded-xl">
+                      <div>
+                        <span className="font-semibold text-gray-500">From: </span>
+                        <span>{formatDateTimeDDMMMYYYY(evt.fromDateTime)}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-gray-500">To: </span>
+                        <span>{formatDateTimeDDMMMYYYY(evt.toDateTime)}</span>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="font-semibold text-gray-500">Location: </span>
+                        <span>{evt.location}</span>
+                      </div>
+                    </div>
+
+                    {/* Status notes & Actions */}
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <div className="text-[11px]">
                         {isAttended ? (
-                          <span className="inline-flex items-center space-x-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md font-bold text-[10px] border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            {isSignedUp && (
-                              <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
-                            )}
+                          <span className="text-emerald-700 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Attended</span>
                           </span>
                         ) : isExempt ? (
-                          <span className="inline-flex items-center space-x-1 text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md font-bold text-[10px]">
-                            <Info className="w-3 h-3 text-gray-500" />
-                            <span>Exempt / Optional</span>
-                          </span>
+                          <span className="text-gray-500 text-[10px]">{evaluation.reason}</span>
                         ) : locked ? (
-                          <span className="inline-flex items-center space-x-1 text-red-700 bg-red-50 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                          <span className="text-red-600 font-semibold text-[10px] flex items-center gap-1">
                             <Lock className="w-3 h-3" />
-                            <span>Locked (&gt;48h finish)</span>
+                            <span>Window Expired (&gt;48h)</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center space-x-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                          <span className="text-emerald-600 font-semibold text-[10px] flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            <span>Open (≤48h finish)</span>
+                            <span>Excuse Window Open</span>
                           </span>
                         )}
-                      </td>
+                      </div>
 
-                      <td className="px-4 py-3 text-right">
-                        {isAttended ? (
-                          <div className="inline-flex flex-col items-end">
-                            <span className="inline-flex items-center space-x-1.5 text-emerald-700 font-bold text-xs bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {isSignedUp && (
-                                <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
-                              )}
-                              <span>Attended</span>
-                            </span>
-                            <span className="text-[10px] text-gray-400 mt-1">
-                              {isSignedUp ? 'Signed up member' : 'Absence not applicable'}
-                            </span>
-                          </div>
-                        ) : isExempt ? (
-                          <span className="text-gray-400 text-[11px] italic">Attendance Exempt</span>
-                        ) : !locked ? (
+                      <div className="flex items-center space-x-1.5">
+                        {!isAttended && !isExempt && !locked && (
                           <button
                             onClick={() => setSelectedEvent(evt)}
-                            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs"
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-2xs"
                           >
-                            Submit Absence Excuse
+                            Submit Excuse
                           </button>
-                        ) : (
-                          <span className="text-gray-400 text-[11px] italic">Absence Locked</span>
                         )}
-
                         {isSecretary && record && (
                           <button
                             onClick={() => {
                               setAdminRecordToEdit(record);
                               setAdminNewStatus((record.status || 'Attended') as any);
                             }}
-                            className="ml-2 px-2.5 py-1 bg-darkblue text-white rounded-lg text-xs font-bold"
+                            className="px-2.5 py-1.5 bg-darkblue text-white rounded-xl text-xs font-bold"
                           >
-                            Admin Override
+                            Override
                           </button>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View (Hidden on mobile screens) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-50 text-gray-700 font-bold uppercase tracking-wider border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3">Event Name</th>
+                    <th className="px-4 py-3">Schedule</th>
+                    <th className="px-4 py-3">Location</th>
+                    <th className="px-4 py-3">Status / Notes</th>
+                    <th className="px-4 py-3">Absence Window</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
+                  {filteredEvents.map((evt) => {
+                    const record = attendanceRecords.find(a => a.eventId === evt.id);
+                    const locked = isLockedForMember(evt);
+                    const isAttended = record?.status === 'Attended';
+                    const evaluation = user ? evaluateEventRequirementForMember(evt, user) : { isRequired: true, isSuspended: false, badgeStyle: '', statusLabel: '', reason: '' };
+                    const isExempt = !evaluation.isRequired || evaluation.isSuspended;
+                    const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && (evt.signedUpMembers.includes(user.id) || evt.signedUpMembers.includes(user.memberId)));
+
+                    return (
+                      <tr key={evt.id} className="hover:bg-gray-50/80">
+                        <td className="px-4 py-3 font-bold text-darkblue">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{evt.name}</span>
+                            {evt.isSignUpEvent && (
+                              <span className="px-1.5 py-0.5 bg-pink-50 text-pink-700 border border-pink-200 text-[10px] font-bold rounded-md flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+                                Sign Up Event
+                              </span>
+                            )}
+                            {evt.requiredCities && evt.requiredCities.length > 0 && (
+                              <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md flex items-center gap-0.5">
+                                <MapPin className="w-2.5 h-2.5" />
+                                {evt.requiredCities.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-gray-500 font-normal mt-0.5">{evt.eventType}</div>
+                        </td>
+
+                        <td className="px-4 py-3 text-gray-600">
+                          <div><span className="font-semibold">From:</span> {formatDateTimeDDMMMYYYY(evt.fromDateTime)}</div>
+                          <div className="text-[11px] text-gray-500"><span className="font-semibold">To:</span> {formatDateTimeDDMMMYYYY(evt.toDateTime)}</div>
+                        </td>
+
+                        <td className="px-4 py-3 text-gray-600">
+                          {evt.location}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {record ? (
+                            <div className="space-y-1">
+                              <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
+                                record?.status === 'Attended' ? 'bg-emerald-100 text-emerald-800' :
+                                record?.status === 'Excused' ? 'bg-blue-100 text-blue-800' :
+                                record?.status === 'Unable To Attend' ? 'bg-amber-100 text-amber-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {record?.status === 'Attended' && (
+                                  <>
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                                    {isSignedUp && (
+                                      <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
+                                    )}
+                                  </>
+                                )}
+                                <span>{record?.status || 'Pending'}</span>
+                              </span>
+                              {isAttended ? (
+                                <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                                  <span>✓</span>
+                                  {isSignedUp && (
+                                    <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block" title="Signed Up Member" />
+                                  )}
+                                  <span>Verified {isSignedUp ? '(Signed Up Crew)' : '(No reason needed)'}</span>
+                                </div>
+                              ) : record.excuseReason ? (
+                                <div className="text-[11px] text-gray-500 italic max-w-xs truncate">
+                                  Excuse: "{record.excuseReason}"
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : isExempt ? (
+                            <div className="space-y-0.5">
+                              <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
+                                evaluation.isSuspended ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                <span>{evaluation.isSuspended ? 'Voluntarily Suspended' : 'Location Exempt'}</span>
+                              </span>
+                              <div className="text-[10px] text-gray-500">
+                                {evaluation.reason}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic">Not Recorded</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {isAttended ? (
+                            <span className="inline-flex items-center space-x-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md font-bold text-[10px] border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              {isSignedUp && (
+                                <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
+                              )}
+                              <span>Attended</span>
+                            </span>
+                          ) : isExempt ? (
+                            <span className="inline-flex items-center space-x-1 text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                              <Info className="w-3 h-3 text-gray-500" />
+                              <span>Exempt / Optional</span>
+                            </span>
+                          ) : locked ? (
+                            <span className="inline-flex items-center space-x-1 text-red-700 bg-red-50 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                              <Lock className="w-3 h-3" />
+                              <span>Locked (&gt;48h finish)</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                              <Clock className="w-3 h-3" />
+                              <span>Open (≤48h finish)</span>
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-right">
+                          {isAttended ? (
+                            <div className="inline-flex flex-col items-end">
+                              <span className="inline-flex items-center space-x-1.5 text-emerald-700 font-bold text-xs bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {isSignedUp && (
+                                  <span className="w-2 h-2 rounded-full bg-pink-500 ring-1 ring-pink-300 shrink-0 inline-block shadow-2xs" title="Signed Up Member" />
+                                )}
+                                <span>Attended</span>
+                              </span>
+                              <span className="text-[10px] text-gray-400 mt-1">
+                                {isSignedUp ? 'Signed up member' : 'Absence not applicable'}
+                              </span>
+                            </div>
+                          ) : isExempt ? (
+                            <span className="text-gray-400 text-[11px] italic">Attendance Exempt</span>
+                          ) : !locked ? (
+                            <button
+                              onClick={() => setSelectedEvent(evt)}
+                              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs"
+                            >
+                              Submit Absence Excuse
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 text-[11px] italic">Absence Locked</span>
+                          )}
+
+                          {isSecretary && record && (
+                            <button
+                              onClick={() => {
+                                setAdminRecordToEdit(record);
+                                setAdminNewStatus((record.status || 'Attended') as any);
+                              }}
+                              className="ml-2 px-2.5 py-1 bg-darkblue text-white rounded-lg text-xs font-bold"
+                            >
+                              Admin Override
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

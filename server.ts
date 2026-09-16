@@ -29,7 +29,8 @@ import {
   verifyTelegramBot,
   sendTelegramTestMessage,
   sendTelegramOtp,
-  checkTelegramStart
+  checkTelegramStart,
+  startTelegramPolling
 } from './server/telegram';
 import { INITIAL_ROVER_POLICY, sortPolicyItems, PolicyItem } from './src/data/policyData';
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -281,6 +282,9 @@ let attendanceStore: any[] = [];
 // Meeting Minutes Store
 let meetingMinutesStore: any[] = [];
 
+// Log Book Entries Store
+let logbookStore: any[] = [];
+
 // Seed Policies
 let policiesStore: PolicyItem[] = [];
 
@@ -480,6 +484,24 @@ async function deleteProfileRequest(id: string) {
   }
 }
 
+async function persistLogBookEntry(entry: any) {
+  if (!db) return;
+  try {
+    await setDoc(doc(db, 'logbook_entries', entry.id), cleanFirestoreData(entry), { merge: true });
+  } catch (err) {
+    console.error(`[Error persisting logbook entry ${entry.id} to Firestore]:`, err);
+  }
+}
+
+async function removeLogBookEntry(id: string) {
+  if (!db) return;
+  try {
+    await deleteDoc(doc(db, 'logbook_entries', id));
+  } catch (err) {
+    console.error(`[Error deleting logbook entry ${id} from Firestore]:`, err);
+  }
+}
+
 async function loadPersistedData() {
   if (!db) return;
   try {
@@ -588,6 +610,16 @@ async function loadPersistedData() {
       console.log(`[Loaded ${meetingMinutesStore.length} meeting minutes from Firestore]`);
     }
 
+    const logbookSnapshot = await getDocs(collection(db, 'logbook_entries'));
+    const loadedLogbook: any[] = [];
+    logbookSnapshot.forEach(doc => {
+      loadedLogbook.push({ id: doc.id, ...doc.data() });
+    });
+    if (loadedLogbook.length > 0) {
+      logbookStore = loadedLogbook;
+      console.log(`[Loaded ${logbookStore.length} log book entries from Firestore]`);
+    }
+
     const polMetaDoc = await getDoc(doc(db, 'settings', 'policy_meta'));
     const isOfficialSynced = polMetaDoc.exists() && polMetaDoc.data()?.policyVersion === '2023-12-18-official';
 
@@ -684,6 +716,8 @@ async function loadPersistedData() {
       console.log(`[Initialized default Telegram settings in Firestore]`);
     }
 
+    // Start background Telegram update polling
+    startTelegramPolling();
   } catch (err) {
     console.error('[Error loading persisted data from Firestore]:', err);
   }
@@ -1237,6 +1271,7 @@ app.post('/api/telegram/test-otp', async (req, res) => {
 
   const result = await sendTelegramOtp({
     toRecipient: recipient,
+    idCardNumber: recipient.idCardNumber.toUpperCase(),
     otp: testOtp,
     purpose: 'verification'
   });
@@ -1266,9 +1301,10 @@ app.post('/api/track/otp', async (req, res) => {
     email: member.email
   });
 
-  // Dispatch OTP via Telegram Bot
+  // Dispatch OTP via Telegram Bot (Strict Private Only)
   const tgResult = await sendTelegramOtp({
     toRecipient: member,
+    idCardNumber: idCardNumber.toUpperCase(),
     otp,
     purpose: 'tracking'
   });
@@ -1278,7 +1314,7 @@ app.post('/api/track/otp', async (req, res) => {
 
   return res.json({
     success: true,
-    message: tgResult.message || `OTP sent via Telegram Bot.`,
+    message: tgResult.message || `OTP sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
     dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
@@ -1287,16 +1323,31 @@ app.post('/api/track/otp', async (req, res) => {
     requireStart: tgResult.requireStart,
     botLink: tgResult.botLink || 'https://t.me/asgmembersbot',
     botUsername: tgResult.botUsername || '@asgmembersbot',
-    otpCode: tgResult.otpCode
+    otpDelivered: tgResult.otpDelivered
   });
 });
 
 app.post('/api/telegram/check-start', async (req, res) => {
-  const { telegramTag, mobileNumber } = req.body;
-  if (!telegramTag) {
-    return res.status(400).json({ error: 'Telegram Tag is required to check connection.' });
+  const { telegramTag, mobileNumber, idCardNumber, purpose } = req.body;
+  
+  let resolvedTag = telegramTag;
+  let resolvedMobile = mobileNumber;
+
+  if (idCardNumber) {
+    const member = memberApplications.find(
+      m => m.idCardNumber.toUpperCase() === idCardNumber.trim().toUpperCase()
+    );
+    if (member) {
+      if (!resolvedTag) resolvedTag = member.telegramTag;
+      if (!resolvedMobile) resolvedMobile = member.mobileNumber || member.phoneNumber;
+    }
   }
-  const result = await checkTelegramStart(telegramTag, mobileNumber);
+
+  if (!resolvedTag && !resolvedMobile && !idCardNumber) {
+    return res.status(400).json({ error: 'Identifier (Telegram handle, phone, or ID card) required to check connection.' });
+  }
+
+  const result = await checkTelegramStart(resolvedTag, resolvedMobile, idCardNumber, purpose);
   return res.json(result);
 });
 
@@ -1359,9 +1410,10 @@ app.post('/api/auth/forgot-password/otp', async (req, res) => {
     email: member.email
   });
 
-  // Dispatch Password Reset OTP via Telegram Bot
+  // Dispatch Password Reset OTP via Telegram Bot (Strict Private Only)
   const tgResult = await sendTelegramOtp({
     toRecipient: member,
+    idCardNumber: idCardNumber.toUpperCase(),
     otp,
     purpose: 'password-reset'
   });
@@ -1371,7 +1423,7 @@ app.post('/api/auth/forgot-password/otp', async (req, res) => {
 
   return res.json({
     success: true,
-    message: tgResult.message || `Password reset verification code sent via Telegram Bot.`,
+    message: tgResult.message || `Password reset verification code sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
     dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
@@ -1380,7 +1432,7 @@ app.post('/api/auth/forgot-password/otp', async (req, res) => {
     requireStart: tgResult.requireStart,
     botLink: tgResult.botLink || 'https://t.me/asgmembersbot',
     botUsername: tgResult.botUsername || '@asgmembersbot',
-    otpCode: tgResult.otpCode
+    otpDelivered: tgResult.otpDelivered
   });
 });
 
@@ -1895,40 +1947,127 @@ app.post('/api/events/:id/notify', async (req, res) => {
 // Announcements API
 app.get('/api/announcements', (req, res) => {
   const { memberId } = req.query;
+  const strMemberId = memberId ? String(memberId) : null;
+
+  if (!strMemberId) {
+    return res.json(announcementsStore.map(ann => ({
+      ...ann,
+      isRead: false
+    })));
+  }
+
+  const member = memberApplications.find(m => m.id === strMemberId);
+  const isAdmin = member && (member.role === 'Secretary' || member.role === 'Admin');
+
+  let filtered = announcementsStore;
+  if (!isAdmin && member) {
+    // Filter for regular members
+    filtered = announcementsStore.filter(ann => {
+      const target = ann.targetAudience || 'All';
+      if (target === 'All') return true;
+      if (target === 'Explorers') {
+        return member.role === 'Explorer' || member.role === 'Explorer Candidate' || (member.ageYears >= 16 && member.ageYears <= 17);
+      }
+      if (target === 'Rovers') {
+        return member.role === 'Rover' || member.role === 'Rover Candidate' || (member.ageYears >= 18 && member.ageYears <= 25);
+      }
+      if (target === 'Leaders') {
+        return member.role === 'Leader' || member.role === 'Secretary' || member.role === 'Admin';
+      }
+      if (target === 'Specific') {
+        return Array.isArray(ann.targetMemberIds) && ann.targetMemberIds.includes(strMemberId);
+      }
+      return true;
+    });
+  }
+
+  const result = filtered.map(ann => ({
+    ...ann,
+    isRead: Array.isArray(ann.readBy) && ann.readBy.includes(strMemberId)
+  }));
+
+  return res.json(result);
+});
+
+app.get('/api/announcements/unread-count', (req, res) => {
+  const { memberId } = req.query;
   if (!memberId) {
-    return res.json(announcementsStore);
+    return res.json({ unreadCount: 0, totalCount: announcementsStore.length });
   }
 
-  const member = memberApplications.find(m => m.id === memberId);
-  if (!member) {
-    return res.json(announcementsStore);
+  const strMemberId = String(memberId);
+  const member = memberApplications.find(m => m.id === strMemberId);
+  const isAdmin = member && (member.role === 'Secretary' || member.role === 'Admin');
+
+  let filtered = announcementsStore;
+  if (!isAdmin && member) {
+    filtered = announcementsStore.filter(ann => {
+      const target = ann.targetAudience || 'All';
+      if (target === 'All') return true;
+      if (target === 'Explorers') {
+        return member.role === 'Explorer' || member.role === 'Explorer Candidate' || (member.ageYears >= 16 && member.ageYears <= 17);
+      }
+      if (target === 'Rovers') {
+        return member.role === 'Rover' || member.role === 'Rover Candidate' || (member.ageYears >= 18 && member.ageYears <= 25);
+      }
+      if (target === 'Leaders') {
+        return member.role === 'Leader' || member.role === 'Secretary' || member.role === 'Admin';
+      }
+      if (target === 'Specific') {
+        return Array.isArray(ann.targetMemberIds) && ann.targetMemberIds.includes(strMemberId);
+      }
+      return true;
+    });
   }
 
-  // If Admin/Secretary/Leader, return all
-  if (member.role === 'Secretary') {
-    return res.json(announcementsStore);
+  const unreadCount = filtered.filter(ann => !Array.isArray(ann.readBy) || !ann.readBy.includes(strMemberId)).length;
+  return res.json({ unreadCount, totalCount: filtered.length });
+});
+
+app.post('/api/announcements/mark-read', (req, res) => {
+  const { memberId, announcementId, all } = req.body;
+  if (!memberId) {
+    return res.status(400).json({ error: 'memberId is required' });
   }
 
-  // Filter for regular members
-  const filtered = announcementsStore.filter(ann => {
-    const target = ann.targetAudience || 'All';
-    if (target === 'All') return true;
-    if (target === 'Explorers') {
-      return member.role === 'Explorer' || member.role === 'Explorer Candidate' || (member.ageYears >= 16 && member.ageYears <= 17);
+  const strMemberId = String(memberId);
+  let updatedCount = 0;
+
+  announcementsStore.forEach(ann => {
+    if (!Array.isArray(ann.readBy)) {
+      ann.readBy = [];
     }
-    if (target === 'Rovers') {
-      return member.role === 'Rover' || member.role === 'Rover Candidate' || (member.ageYears >= 18 && member.ageYears <= 25);
+    if (all || (announcementId && ann.id === announcementId)) {
+      if (!ann.readBy.includes(strMemberId)) {
+        ann.readBy.push(strMemberId);
+        updatedCount++;
+        persistAnnouncement(ann);
+      }
     }
-    if (target === 'Leaders') {
-      return member.role === 'Leader' || member.role === 'Secretary' || member.role === 'Admin';
-    }
-    if (target === 'Specific') {
-      return Array.isArray(ann.targetMemberIds) && ann.targetMemberIds.includes(memberId);
-    }
-    return true;
   });
 
-  return res.json(filtered);
+  const member = memberApplications.find(m => m.id === strMemberId);
+  const isAdmin = member && (member.role === 'Secretary' || member.role === 'Admin');
+  let filtered = announcementsStore;
+  if (!isAdmin && member) {
+    filtered = announcementsStore.filter(ann => {
+      const target = ann.targetAudience || 'All';
+      if (target === 'All') return true;
+      if (target === 'Explorers') return member.role === 'Explorer' || member.role === 'Explorer Candidate' || (member.ageYears >= 16 && member.ageYears <= 17);
+      if (target === 'Rovers') return member.role === 'Rover' || member.role === 'Rover Candidate' || (member.ageYears >= 18 && member.ageYears <= 25);
+      if (target === 'Leaders') return member.role === 'Leader' || member.role === 'Secretary' || member.role === 'Admin';
+      if (target === 'Specific') return Array.isArray(ann.targetMemberIds) && ann.targetMemberIds.includes(strMemberId);
+      return true;
+    });
+  }
+
+  const unreadCount = filtered.filter(ann => !Array.isArray(ann.readBy) || !ann.readBy.includes(strMemberId)).length;
+
+  return res.json({
+    success: true,
+    updatedCount,
+    unreadCount
+  });
 });
 
 app.post('/api/announcements', async (req, res) => {
@@ -2306,6 +2445,201 @@ app.delete('/api/meeting-minutes/:id', (req, res) => {
   return res.json({ success: true, message: 'Meeting minute deleted.' });
 });
 
+// ==========================================
+// Log Book API Endpoints
+// ==========================================
+app.get('/api/logbook', (req, res) => {
+  const { memberId, category, status, search, role } = req.query;
+  let results = [...logbookStore];
+
+  if (memberId && typeof memberId === 'string') {
+    results = results.filter(entry => entry.memberId === memberId);
+  }
+
+  if (category && typeof category === 'string' && category !== 'All') {
+    results = results.filter(entry => entry.category === category);
+  }
+
+  if (status && typeof status === 'string' && status !== 'All') {
+    results = results.filter(entry => entry.status === status);
+  }
+
+  if (search && typeof search === 'string' && search.trim()) {
+    const q = search.trim().toLowerCase();
+    results = results.filter(entry => 
+      (entry.title && entry.title.toLowerCase().includes(q)) ||
+      (entry.location && entry.location.toLowerCase().includes(q)) ||
+      (entry.memberName && entry.memberName.toLowerCase().includes(q)) ||
+      (entry.description && entry.description.toLowerCase().includes(q)) ||
+      (entry.learningPoints && entry.learningPoints.toLowerCase().includes(q))
+    );
+  }
+
+  // Sort by date descending
+  results.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+
+  return res.json(results);
+});
+
+app.get('/api/logbook/stats', (req, res) => {
+  const { memberId } = req.query;
+  let entries = [...logbookStore];
+  if (memberId && typeof memberId === 'string') {
+    entries = entries.filter(e => e.memberId === memberId);
+  }
+
+  const totalEntries = entries.length;
+  const verifiedEntries = entries.filter(e => e.status === 'Verified').length;
+  const pendingReview = entries.filter(e => e.status === 'Pending Review').length;
+  const drafts = entries.filter(e => e.status === 'Draft').length;
+
+  const totalHours = entries.reduce((acc, e) => acc + (Number(e.durationHours) || 0), 0);
+  const totalHikingKm = entries.reduce((acc, e) => acc + (Number(e.hikingKm) || 0), 0);
+  const totalCampNights = entries.reduce((acc, e) => acc + (Number(e.campNights) || 0), 0);
+
+  // Category breakdown
+  const categoryCounts: Record<string, number> = {};
+  entries.forEach(e => {
+    const cat = e.category || 'Other';
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+  });
+
+  return res.json({
+    totalEntries,
+    verifiedEntries,
+    pendingReview,
+    drafts,
+    totalHours,
+    totalHikingKm,
+    totalCampNights,
+    categoryCounts
+  });
+});
+
+app.post('/api/logbook', (req, res) => {
+  const {
+    memberId,
+    memberName,
+    memberRole,
+    title,
+    category,
+    date,
+    endDate,
+    location,
+    durationHours,
+    hikingKm,
+    campNights,
+    roleInActivity,
+    description,
+    learningPoints,
+    photoUrls,
+    status
+  } = req.body;
+
+  if (!title || !category || !date) {
+    return res.status(400).json({ error: 'Title, category, and date are required.' });
+  }
+
+  const newEntry = {
+    id: `log-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 6)}`,
+    memberId: memberId || 'unknown',
+    memberName: memberName || 'Scout Member',
+    memberRole: memberRole || 'Rover',
+    title: title.trim(),
+    category: category || 'Other',
+    date: date,
+    endDate: endDate || '',
+    location: (location || '').trim(),
+    durationHours: Number(durationHours) || 0,
+    hikingKm: Number(hikingKm) || 0,
+    campNights: Number(campNights) || 0,
+    roleInActivity: (roleInActivity || 'Participant').trim(),
+    description: (description || '').trim(),
+    learningPoints: (learningPoints || '').trim(),
+    photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
+    status: status || 'Pending Review',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  logbookStore.unshift(newEntry);
+  persistLogBookEntry(newEntry);
+
+  return res.status(201).json({
+    success: true,
+    entry: newEntry,
+    message: 'Log book entry recorded successfully.'
+  });
+});
+
+app.put('/api/logbook/:id', (req, res) => {
+  const { id } = req.params;
+  const index = logbookStore.findIndex(e => e.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Log book entry not found.' });
+  }
+
+  const existing = logbookStore[index];
+  const updated = {
+    ...existing,
+    ...req.body,
+    id: existing.id,
+    memberId: existing.memberId, // retain ownership
+    updatedAt: new Date().toISOString()
+  };
+
+  logbookStore[index] = updated;
+  persistLogBookEntry(updated);
+
+  return res.json({
+    success: true,
+    entry: updated,
+    message: 'Log book entry updated successfully.'
+  });
+});
+
+app.delete('/api/logbook/:id', (req, res) => {
+  const { id } = req.params;
+  const index = logbookStore.findIndex(e => e.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Log book entry not found.' });
+  }
+
+  logbookStore.splice(index, 1);
+  removeLogBookEntry(id);
+
+  return res.json({ success: true, message: 'Log book entry deleted.' });
+});
+
+app.post('/api/logbook/:id/review', (req, res) => {
+  const { id } = req.params;
+  const { status, reviewNotes, reviewedBy } = req.body;
+
+  const index = logbookStore.findIndex(e => e.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Log book entry not found.' });
+  }
+
+  const existing = logbookStore[index];
+  const updated = {
+    ...existing,
+    status: status || 'Verified',
+    reviewNotes: (reviewNotes || '').trim(),
+    reviewedBy: reviewedBy || 'Scout Leader',
+    reviewedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  logbookStore[index] = updated;
+  persistLogBookEntry(updated);
+
+  return res.json({
+    success: true,
+    entry: updated,
+    message: `Log book entry ${status === 'Verified' ? 'verified' : 'marked for revision'} successfully.`
+  });
+});
+
 // Member record finder helper
 function findMemberRecord(idCardNumber?: string, memberId?: string, username?: string): any {
   const normIdCard = (idCardNumber || '').trim().toUpperCase();
@@ -2506,12 +2840,12 @@ app.get('/api/policies', (req, res) => {
 });
 
 app.post('/api/policies', async (req, res) => {
-  const { number, title, content, userRole, username, email, userId } = req.body;
+  const { number, title, content, imageUrl, imageCaption, imageSize, imageAlignment, userRole, username, email, userId } = req.body;
   const callerRole = userRole || req.headers['x-user-role'];
   const reqUsername = username || req.headers['x-username'];
   const reqEmail = email || req.headers['x-user-email'];
   const reqUserId = userId || req.headers['x-user-id'];
-  
+
   if (!isUserAdminOrSecretary(reqUsername, reqEmail, reqUserId, callerRole)) {
     return res.status(403).json({ error: 'Permission denied. Only authorized admin/secretary roles have permission to create policy items.' });
   }
@@ -2531,6 +2865,10 @@ app.post('/api/policies', async (req, res) => {
     number: cleanNum,
     title: title.trim(),
     content: content.trim(),
+    imageUrl: imageUrl ? imageUrl.trim() : undefined,
+    imageCaption: imageCaption ? imageCaption.trim() : undefined,
+    imageSize: imageSize || 'medium',
+    imageAlignment: imageAlignment || 'center',
     updatedAt: new Date().toISOString()
   };
 
@@ -2555,7 +2893,7 @@ app.post('/api/policies', async (req, res) => {
 
 app.put('/api/policies/:id', async (req, res) => {
   const { id } = req.params;
-  const { number, title, content, userRole, username, email, userId } = req.body;
+  const { number, title, content, imageUrl, imageCaption, imageSize, imageAlignment, userRole, username, email, userId } = req.body;
   const callerRole = userRole || req.headers['x-user-role'];
   const reqUsername = username || req.headers['x-username'];
   const reqEmail = email || req.headers['x-user-email'];
@@ -2571,11 +2909,15 @@ app.put('/api/policies/:id', async (req, res) => {
   }
 
   const current = policiesStore[index];
-  const updatedItem = {
+  const updatedItem: PolicyItem = {
     ...current,
     number: number !== undefined ? number.trim() : current.number,
     title: title !== undefined ? title.trim() : current.title,
     content: content !== undefined ? content.trim() : current.content,
+    imageUrl: imageUrl !== undefined ? (imageUrl ? imageUrl.trim() : '') : current.imageUrl,
+    imageCaption: imageCaption !== undefined ? (imageCaption ? imageCaption.trim() : '') : current.imageCaption,
+    imageSize: imageSize !== undefined ? imageSize : (current.imageSize || 'medium'),
+    imageAlignment: imageAlignment !== undefined ? imageAlignment : (current.imageAlignment || 'center'),
     updatedAt: new Date().toISOString()
   };
 
@@ -3006,10 +3348,17 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
     const fullName = extractRowValue(rawRow, 'fullName', 'Full Name', 'name', 'full_name');
     const idCardNumber = extractRowValue(rawRow, 'idCardNumber', 'ID Card Number', 'idCard', 'id_card_number', 'id');
     const dob = extractRowValue(rawRow, 'dob', 'Date of Birth', 'dateOfBirth', 'date_of_birth', 'birthDate') || '2005-01-01';
-    const age = extractRowValue(rawRow, 'age', 'Age', 'ageYears');
     const permAddress = extractRowValue(rawRow, 'permanentAddress', 'Permenant Address', 'Permanent Address', 'permAddress', 'permanent_address') || 'Maldives';
+    const permCity = extractRowValue(rawRow, 'permanentCity', 'Permanent Address City / Island', 'Permanent Address City/Island', 'Permanent City / Island', 'Permanent City', 'permanentAddressCity') || '';
+    const permState = extractRowValue(rawRow, 'permanentState', 'Permanent Address State / Atoll', 'Permanent Address State/Atoll', 'Permanent State / Atoll', 'Permanent State', 'permanentAddressState') || '';
+    const permCountry = extractRowValue(rawRow, 'permanentCountry', 'Permanent Address Country', 'permanentAddressCountry') || 'Maldives';
+
     const gender = extractRowValue(rawRow, 'gender', 'Gender', 'sex') || 'Male';
     const currAddress = extractRowValue(rawRow, 'currentAddress', 'Current Address', 'currAddress', 'current_address') || permAddress;
+    const currentCity = extractRowValue(rawRow, 'currentCity', 'Current Address City / Island', 'Current Address City/Island', 'Current City / Island', 'Current City', 'City / Island', 'City', 'Island', 'currentAddressCity') || permCity || '';
+    const currentState = extractRowValue(rawRow, 'currentState', 'Current Address State / Atoll', 'Current Address State/Atoll', 'Current State / Atoll', 'Current State', 'State / Atoll', 'State', 'Atoll', 'currentAddressState') || permState || '';
+    const currentCountry = extractRowValue(rawRow, 'currentCountry', 'Current Address Country', 'Country', 'currentAddressCountry') || permCountry || 'Maldives';
+    
     const emergencyName = extractRowValue(rawRow, 'emergencyName', 'Emergency Contact Name', 'emergencyContactName', 'emergency_contact_name') || 'Family Contact';
     const emergencyNumber = extractRowValue(rawRow, 'emergencyNumber', 'Emergency Contact Number', 'emergencyContactNumber', 'emergency_contact_number') || '7777777';
     const email = extractRowValue(rawRow, 'email', 'Email Address', 'emailAddress', 'email_address') || '';
@@ -3020,14 +3369,11 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
     const instagramTag = extractRowValue(rawRow, 'instagramTag', 'Instagram Tag', 'instagram', 'insta') || '';
     const investitureDate = extractRowValue(rawRow, 'investitureDate', 'Investiture Date', 'investiture_date') || new Date().toISOString().split('T')[0];
     const resignationDate = extractRowValue(rawRow, 'resignationDate', 'Resignation Date', 'resignation_date') || '';
-    const term = extractRowValue(rawRow, 'term', 'Term', 'term_session') || '2024-2026';
-    const status = extractRowValue(rawRow, 'status', 'Status') || (resignationDate ? 'Resigned' : 'Investiture');
     const overallAttendanceWithoutExcused = extractRowValue(rawRow, 'overallAttendanceWithoutExcused', 'Overall Attendance Without Excused', 'attendanceWithoutExcused') || '0%';
     const overallAttendanceWithExcused = extractRowValue(rawRow, 'overallAttendanceWithExcused', 'Overall Attendance With Excused', 'attendanceWithExcused') || '0%';
     
     // Additional scout progression fields if provided
     const commonName = extractRowValue(rawRow, 'commonName', 'Common Name') || (fullName ? fullName.split(' ')[0] : '');
-    const awardGoal = extractRowValue(rawRow, 'awardGoal', 'Award Goal') || 'President Scout Award';
     const currentLevel = extractRowValue(rawRow, 'currentLevel', 'Current Level') || 'Square';
     const lastScoutGroup = extractRowValue(rawRow, 'lastScoutGroup', 'Last Scout Group') || '';
     const isNewToScouting = extractRowValue(rawRow, 'isNewToScouting', 'Is New To Scouting');
@@ -3045,20 +3391,56 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
     const cleanUsername = extractRowValue(rawRow, 'username', 'Username') || 
       (fullName.toLowerCase().replace(/[^a-z0-9]/g, '') + cleanId.slice(-3));
 
+    // Calculate age & role & award goal automatically based on DOB (<18 => President Scout Award, >=18 => Baden-Powell Award)
+    const { years, months, days, role } = calculateAgeAndRole(dob);
+    const calculatedAwardGoal = years < 18 ? 'President Scout Award' : 'Baden-Powell Award';
+
+    const structuredPermanentAddress = {
+      country: permCountry || 'Maldives',
+      state: permState || '',
+      city: permCity || '',
+      district: 'N/A',
+      addressLine: permAddress || permCity || ''
+    };
+
+    const structuredCurrentAddress = {
+      country: currentCountry || 'Maldives',
+      state: currentState || '',
+      city: currentCity || '',
+      district: 'N/A',
+      addressLine: currAddress || currentCity || ''
+    };
+
     // Check if member already exists by ID Card Number or username
     const existing = memberApplications.find(
       m => (m.idCardNumber || '').toUpperCase() === cleanId || (m.username || '').toLowerCase() === cleanUsername.toLowerCase()
     );
 
     if (existing) {
+      const isAlreadyActive = (existing.status || '').toLowerCase().trim() === 'active';
+      if (isAlreadyActive) {
+        errors.push(`Row ${i + 1} (${fullName}): Member with ID Card ${cleanId} is already Active. Existing Active member details cannot be altered via bulk update.`);
+        continue;
+      }
+
       if (syncExisting) {
-        // Synchronize and update existing member record
+        // Synchronize and update existing non-active member record
         existing.fullName = fullName;
         if (commonName) existing.commonName = commonName;
-        if (dob) existing.dob = dob;
+        if (dob) {
+          existing.dob = dob;
+          const { years: y, months: m, days: d, role: r } = calculateAgeAndRole(dob);
+          existing.ageYears = y;
+          existing.ageMonths = m;
+          existing.ageDays = d;
+          existing.age = y;
+          existing.role = r || (y < 18 ? 'Explorer' : 'Rover');
+          existing.awardGoal = y < 18 ? 'President Scout Award' : 'Baden-Powell Award';
+          existing.awardIntent = true;
+        }
         if (gender) existing.gender = gender;
-        if (permAddress) existing.permanentAddress = permAddress;
-        if (currAddress) existing.currentAddress = currAddress;
+        if (permAddress) existing.permanentAddress = structuredPermanentAddress;
+        existing.currentAddress = structuredCurrentAddress;
         if (emergencyName) existing.emergencyName = emergencyName;
         if (emergencyNumber) existing.emergencyNumber = emergencyNumber;
         if (email) existing.email = email;
@@ -3070,7 +3452,6 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
         }
         if (whatsappNumber) existing.whatsappNumber = whatsappNumber;
         if (instagramTag) existing.instagramTag = instagramTag;
-        if (awardGoal) existing.awardGoal = awardGoal;
         if (currentLevel) existing.currentLevel = currentLevel;
         if (lastScoutGroup) existing.lastScoutGroup = lastScoutGroup;
         if (isNewToScouting !== undefined) existing.isNewToScouting = isNewScout;
@@ -3080,11 +3461,8 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
         }
         if (investitureDate) existing.investitureDate = investitureDate;
         if (resignationDate !== undefined) existing.resignationDate = resignationDate;
-        if (term) existing.term = term;
-        if (status) existing.status = status;
         if (overallAttendanceWithoutExcused) existing.overallAttendanceWithoutExcused = overallAttendanceWithoutExcused;
         if (overallAttendanceWithExcused) existing.overallAttendanceWithExcused = overallAttendanceWithExcused;
-        if (age) existing.age = age;
         existing.updatedAt = new Date().toISOString();
         persistMember(existing);
         updatedCount++;
@@ -3094,9 +3472,6 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
         continue;
       }
     }
-
-    // Calculate age & role
-    const { years, months, days, role } = calculateAgeAndRole(dob);
 
     const newMem = {
       id: `mem-${Date.now().toString().slice(-6)}-${i}`,
@@ -3109,10 +3484,11 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
       ageYears: years,
       ageMonths: months,
       ageDays: days,
-      age: age || years,
+      age: years,
       gender: gender,
-      role: extractRowValue(rawRow, 'role', 'Role', 'Section') || role,
-      awardGoal: awardGoal,
+      role: role || (years < 18 ? 'Explorer' : 'Rover'),
+      awardIntent: true,
+      awardGoal: calculatedAwardGoal,
       currentLevel: currentLevel,
       isNewToScouting: isNewScout,
       lastScoutGroup: lastScoutGroup,
@@ -3123,15 +3499,15 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
       telegramTag: extractRowValue(rawRow, 'telegramTag', 'Telegram Tag') || telegramNumber || '',
       whatsappNumber: whatsappNumber,
       instagramTag: instagramTag,
-      permanentAddress: permAddress,
-      currentAddress: currAddress,
+      permanentAddress: structuredPermanentAddress,
+      currentAddress: structuredCurrentAddress,
       emergencyName: emergencyName,
       emergencyRelationship: emergencyRelationship,
       emergencyNumber: emergencyNumber,
-      status: status,
+      status: 'Pending Verification',
       investitureDate: investitureDate,
       resignationDate: resignationDate,
-      term: term,
+      term: '2024-2026',
       overallAttendanceWithoutExcused: overallAttendanceWithoutExcused,
       overallAttendanceWithExcused: overallAttendanceWithExcused,
       createdAt: new Date().toISOString()
@@ -3452,10 +3828,36 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // Robust resolution of distPath across local and containerized deployments
+    const possibleDistPaths = [
+      path.join(process.cwd(), 'dist'),
+      path.resolve(__dirname),
+      path.resolve(__dirname, '..', 'dist'),
+      path.resolve(__dirname, 'dist'),
+      process.cwd()
+    ];
+    const distPath = possibleDistPaths.find(p => fs.existsSync(path.join(p, 'index.html'))) || possibleDistPaths[0];
+    console.log(`[Production SPA] Serving static files from: ${distPath}`);
+
     app.use(express.static(distPath));
+
+    // Handle SPA fallback for client-side routing
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      // Do not return index.html for API requests
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'Endpoint not found' });
+      }
+      // Do not return HTML for static assets that fail to load (prevents browser MIME type errors on module scripts)
+      if (req.path.startsWith('/assets/') || /\.(js|css|svg|png|jpg|jpeg|gif|ico|json|woff2?|ttf|eot)$/i.test(req.path)) {
+        return res.status(404).send('Asset not found');
+      }
+
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(500).send('Arabiyya Members Application build files not found. Please verify npm run build has completed.');
+      }
     });
   }
 

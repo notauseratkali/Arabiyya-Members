@@ -42,6 +42,15 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({ onNavigate }) => {
             <Clock className="w-3.5 h-3.5 text-gray-400" />
             <span>Coming Soon</span>
           </div>
+
+          <div className="pt-3">
+            <button
+              onClick={() => onNavigate('/logbook')}
+              className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-darkblue hover:bg-blue-900 text-white text-xs font-bold transition-all shadow-xs"
+            >
+              <span>Go to Scout Log Book</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

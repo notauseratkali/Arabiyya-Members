@@ -23,23 +23,29 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AnnouncementsPage } from './pages/AnnouncementsPage';
 import { MeetingMinutesPage } from './pages/MeetingMinutesPage';
 import { CoursesPage } from './pages/CoursesPage';
+import { LogBookPage } from './pages/LogBookPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { SyllabusPage } from './pages/SyllabusPage';
 import { FinancePage } from './pages/FinancePage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { safeStorage } from './utils/safeStorage';
 
 function AppContent() {
   const { user, isLoading } = useAuth();
   const [splashActive, setSplashActive] = useState(true);
   const [currentPath, setCurrentPath] = useState<string>(() => {
-    const path = window.location.pathname;
+    let path = window.location.pathname;
+    // Support static host hash routing fallback if someone enters via /#/path
+    if (window.location.hash && window.location.hash.startsWith('#/')) {
+      path = window.location.hash.slice(1);
+    }
     if (!path || path === '/' || path === '/login') {
-      const savedUser = localStorage.getItem('arabiyya_auth_user');
+      const savedUser = safeStorage.getItem('arabiyya_auth_user');
       return savedUser ? '/dashboard' : '/signin';
     }
     return path;
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [pageLoading, setPageLoading] = useState(false);
   const touchStartX = React.useRef(0);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -63,18 +69,9 @@ function AppContent() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setSplashActive(false);
-    }, 1200);
+    }, 700);
     return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (splashActive) return;
-    setPageLoading(true);
-    const timer = setTimeout(() => {
-      setPageLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [currentPath]);
 
   const navigate = (path: string) => {
     let targetPath = (!path || path === '/') ? (user ? '/dashboard' : '/signin') : path;
@@ -182,6 +179,9 @@ function AppContent() {
         return <MembersPage onNavigate={navigate} />;
       case '/courses':
         return <CoursesPage onNavigate={navigate} />;
+      case '/logbook':
+      case '/log-book':
+        return <LogBookPage onNavigate={navigate} />;
       case '/progress':
         return <ProgressPage onNavigate={navigate} />;
       case '/policy':
@@ -189,19 +189,32 @@ function AppContent() {
       case '/finance':
         return <FinancePage onNavigate={navigate} />;
       case '/syllabus':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) ? <SyllabusPage onNavigate={navigate} /> : <DashboardPage onNavigate={navigate} />;
+        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+          ? <SyllabusPage onNavigate={navigate} /> 
+          : <NotFoundPage onNavigate={navigate} />;
       case '/requests':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) ? <RequestsPage onNavigate={navigate} /> : <DashboardPage onNavigate={navigate} />;
+        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+          ? <RequestsPage onNavigate={navigate} /> 
+          : <NotFoundPage onNavigate={navigate} />;
       case '/announcements':
         return <AnnouncementsPage onNavigate={navigate} />;
       case '/settings':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) ? <SettingsPage onNavigate={navigate} /> : <DashboardPage onNavigate={navigate} />;
+        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+          ? <SettingsPage onNavigate={navigate} /> 
+          : <NotFoundPage onNavigate={navigate} />;
+      case '/admin':
+      case '/admin/requests':
+      case '/admin/settings':
+      case '/admin/syllabus':
+        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+          ? <RequestsPage onNavigate={navigate} /> 
+          : <NotFoundPage onNavigate={navigate} />;
       default:
-        return <DashboardPage onNavigate={navigate} />;
+        return <NotFoundPage onNavigate={navigate} />;
     }
   };
 
-  const showLoader = splashActive || isLoading || pageLoading;
+  const showLoader = splashActive && !user;
 
   return (
     <div 

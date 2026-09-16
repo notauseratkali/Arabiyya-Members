@@ -1,9 +1,16 @@
+export type PolicyImageSize = 'small' | 'medium' | 'large' | 'full';
+export type PolicyImageAlignment = 'left' | 'center' | 'right';
+
 export interface PolicyItem {
   id: string;
   number: string; // e.g. "1", "1.1", "1.1.1", "2", "2.1"
   title: string;
   content: string;
   category?: string;
+  imageUrl?: string;
+  imageCaption?: string;
+  imageSize?: PolicyImageSize;
+  imageAlignment?: PolicyImageAlignment;
   updatedAt?: string;
 }
 

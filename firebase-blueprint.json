@@ -247,6 +247,120 @@
           "description": "Array of policy paragraphs"
         }
       }
+    },
+    "OTP": {
+      "collection": "otps",
+      "fields": {
+        "otp": {
+          "type": "string",
+          "description": "One-time passcode"
+        },
+        "expiresAt": {
+          "type": "number",
+          "description": "Expiration timestamp in milliseconds"
+        },
+        "idCard": {
+          "type": "string",
+          "description": "Member national ID card number"
+        },
+        "email": {
+          "type": "string",
+          "description": "Associated member email address"
+        }
+      }
+    },
+    "LogBookEntry": {
+      "collection": "logbook_entries",
+      "fields": {
+        "id": {
+          "type": "string",
+          "description": "Unique log book entry ID"
+        },
+        "memberId": {
+          "type": "string",
+          "description": "Associated Member ID"
+        },
+        "memberName": {
+          "type": "string",
+          "description": "Member full name"
+        },
+        "memberRole": {
+          "type": "string",
+          "description": "Scout section or rank"
+        },
+        "title": {
+          "type": "string",
+          "description": "Activity or event title"
+        },
+        "category": {
+          "type": "string",
+          "description": "Camp, Hike, Service, Training, Meeting, Milestone, Other"
+        },
+        "date": {
+          "type": "string",
+          "description": "Activity date"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "Activity end date if multi-day"
+        },
+        "location": {
+          "type": "string",
+          "description": "Venue or hike trail location"
+        },
+        "durationHours": {
+          "type": "number",
+          "description": "Service or activity hours"
+        },
+        "hikingKm": {
+          "type": "number",
+          "description": "Hiking distance in km"
+        },
+        "campNights": {
+          "type": "number",
+          "description": "Nights in camp"
+        },
+        "roleInActivity": {
+          "type": "string",
+          "description": "Participant, Patrol Leader, Organizer, etc."
+        },
+        "description": {
+          "type": "string",
+          "description": "Activity log details and experience"
+        },
+        "learningPoints": {
+          "type": "string",
+          "description": "Skills and key takeaways"
+        },
+        "photoUrls": {
+          "type": "array",
+          "description": "List of photo URLs"
+        },
+        "status": {
+          "type": "string",
+          "description": "Draft, Pending Review, Verified, Needs Revision"
+        },
+        "reviewedBy": {
+          "type": "string",
+          "description": "Supervisor/Leader who reviewed"
+        },
+        "reviewedAt": {
+          "type": "string",
+          "description": "Review timestamp"
+        },
+        "reviewNotes": {
+          "type": "string",
+          "description": "Feedback or review remarks"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last updated timestamp"
+        }
+      }
     }
   }
 }

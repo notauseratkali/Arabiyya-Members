@@ -15,7 +15,8 @@ import {
   Edit3,
   Save,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Home
 } from 'lucide-react';
 import { Member } from '../types';
 import { calculateTermFromInvestiture } from '../utils/termCalculation';
@@ -49,6 +50,33 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [resignationDateInput, setResignationDateInput] = useState(new Date().toISOString().split('T')[0]);
 
+  // Helper functions for parsing address
+  const parseAddress = (addr: any) => {
+    if (!addr) return { addressLine: 'N/A', city: 'N/A', state: 'N/A', country: 'N/A', full: 'N/A' };
+    if (typeof addr === 'string') {
+      return { addressLine: addr, city: 'N/A', state: 'N/A', country: 'N/A', full: addr };
+    }
+    const addressLine = addr.addressLine || addr.address || '';
+    const city = addr.city || '';
+    const state = addr.state || '';
+    const country = addr.country || '';
+    const full = [addressLine, city, state, country].filter(Boolean).join(', ') || 'N/A';
+    return {
+      addressLine: addressLine || 'N/A',
+      city: city || 'N/A',
+      state: state || 'N/A',
+      country: country || 'N/A',
+      full
+    };
+  };
+
+  const renderAddressText = (addr: any) => {
+    if (!addr) return 'Not Provided';
+    if (typeof addr === 'string') return addr;
+    const parts = [addr.addressLine, addr.district, addr.city, addr.state, addr.country].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : 'Not Provided';
+  };
+
   // Member editing states (Secretary Only)
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,8 +94,19 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
   const [currentLevel, setCurrentLevel] = useState('Square');
   const [isNewToScouting, setIsNewToScouting] = useState('No');
   const [lastScoutGroup, setLastScoutGroup] = useState('');
+  
+  // Permanent Address form fields
   const [permAddress, setPermAddress] = useState('');
+  const [permCity, setPermCity] = useState('');
+  const [permState, setPermState] = useState('');
+  const [permCountry, setPermCountry] = useState('Maldives');
+
+  // Current Address form fields
   const [currAddress, setCurrAddress] = useState('');
+  const [currCity, setCurrCity] = useState('');
+  const [currState, setCurrState] = useState('');
+  const [currCountry, setCurrCountry] = useState('Maldives');
+
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -98,16 +137,20 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
       setCurrentLevel(member.currentLevel || 'Square');
       setIsNewToScouting(member.isNewToScouting ? 'Yes' : 'No');
       setLastScoutGroup(member.lastScoutGroup || '');
-      setPermAddress(
-        typeof member.permanentAddress === 'string' 
-          ? member.permanentAddress 
-          : (member.permanentAddress?.addressLine || '')
-      );
-      setCurrAddress(
-        typeof member.currentAddress === 'string' 
-          ? member.currentAddress 
-          : (member.currentAddress?.addressLine || '')
-      );
+      
+      const parsedPerm = parseAddress(member.permanentAddress);
+      const parsedCurr = parseAddress(member.currentAddress || member.permanentAddress);
+
+      setPermAddress(parsedPerm.addressLine === 'N/A' ? '' : parsedPerm.addressLine);
+      setPermCity(parsedPerm.city === 'N/A' ? '' : parsedPerm.city);
+      setPermState(parsedPerm.state === 'N/A' ? '' : parsedPerm.state);
+      setPermCountry(parsedPerm.country === 'N/A' ? 'Maldives' : parsedPerm.country);
+
+      setCurrAddress(parsedCurr.addressLine === 'N/A' ? '' : parsedCurr.addressLine);
+      setCurrCity(parsedCurr.city === 'N/A' ? '' : parsedCurr.city);
+      setCurrState(parsedCurr.state === 'N/A' ? '' : parsedCurr.state);
+      setCurrCountry(parsedCurr.country === 'N/A' ? 'Maldives' : parsedCurr.country);
+
       setEmail(member.email || '');
       setMobileNumber(member.mobileNumber || member.phoneNumber || '');
       setPhoneNumber(member.phoneNumber || '');
@@ -177,6 +220,22 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
     setSaveSuccess(false);
     setSaving(true);
 
+    const structuredPermAddress = {
+      country: permCountry || 'Maldives',
+      state: permState || '',
+      city: permCity || '',
+      district: 'N/A',
+      addressLine: permAddress || ''
+    };
+
+    const structuredCurrAddress = {
+      country: currCountry || 'Maldives',
+      state: currState || '',
+      city: currCity || '',
+      district: 'N/A',
+      addressLine: currAddress || ''
+    };
+
     const updates = {
       fullName,
       commonName,
@@ -188,8 +247,8 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
       currentLevel,
       isNewToScouting: isNewToScouting === 'Yes',
       lastScoutGroup,
-      permanentAddress: permAddress,
-      currentAddress: currAddress,
+      permanentAddress: structuredPermAddress,
+      currentAddress: structuredCurrAddress,
       email,
       mobileNumber,
       phoneNumber,
@@ -235,32 +294,7 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
     }
   };
 
-  const parseAddress = (addr: any) => {
-    if (!addr) return { addressLine: 'N/A', city: 'N/A', state: 'N/A', country: 'N/A', full: 'N/A' };
-    if (typeof addr === 'string') {
-      return { addressLine: addr, city: 'N/A', state: 'N/A', country: 'N/A', full: addr };
-    }
-    const addressLine = addr.addressLine || addr.address || '';
-    const city = addr.city || '';
-    const state = addr.state || '';
-    const country = addr.country || '';
-    const full = [addressLine, city, state, country].filter(Boolean).join(', ') || 'N/A';
-    return {
-      addressLine: addressLine || 'N/A',
-      city: city || 'N/A',
-      state: state || 'N/A',
-      country: country || 'N/A',
-      full
-    };
-  };
-
-  const renderAddressText = (addr: any) => {
-    if (!addr) return 'Not Provided';
-    if (typeof addr === 'string') return addr;
-    const parts = [addr.addressLine, addr.district, addr.city, addr.state, addr.country].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : 'Not Provided';
-  };
-
+  const permAddrInfo = parseAddress(member.permanentAddress);
   const currentAddrInfo = parseAddress(member.currentAddress || member.permanentAddress);
 
   return (
@@ -624,31 +658,109 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
               </div>
 
               {/* Addresses */}
-              <div className="bg-red-50/30 border border-red-100 rounded-2xl p-4 space-y-3">
+              <div className="bg-red-50/30 border border-red-100 rounded-2xl p-4 space-y-4">
                 <h4 className="font-bold text-red-950 text-xs uppercase tracking-wider flex items-center space-x-2">
                   <MapPin className="w-4 h-4 text-red-600" />
                   <span>4. Address Registrations</span>
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-red-100/60 font-medium">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 block">Permanent Address:</label>
-                    <textarea
-                      rows={2}
-                      value={permAddress}
-                      onChange={(e) => setPermAddress(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon resize-none font-medium"
-                      placeholder="Street, City, Atoll"
-                    />
+
+                {/* Permanent Address Details */}
+                <div className="bg-white p-3.5 rounded-xl border border-red-100/60 space-y-3">
+                  <div className="text-[11px] font-bold text-darkblue uppercase tracking-wider flex items-center space-x-1.5">
+                    <Home className="w-3.5 h-3.5 text-maroon" />
+                    <span>Permanent Registered Address</span>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 block">Current Address:</label>
-                    <textarea
-                      rows={2}
+                    <label className="text-[10px] font-bold text-gray-500 block">House Name / Flat / Street / Address Line:</label>
+                    <input
+                      type="text"
+                      value={permAddress}
+                      onChange={(e) => setPermAddress(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                      placeholder="e.g. M. Rose, Henveiru"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">City / Island:</label>
+                      <input
+                        type="text"
+                        value={permCity}
+                        onChange={(e) => setPermCity(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Male'"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">State / Atoll:</label>
+                      <input
+                        type="text"
+                        value={permState}
+                        onChange={(e) => setPermState(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Kaafu Atoll"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">Country:</label>
+                      <input
+                        type="text"
+                        value={permCountry}
+                        onChange={(e) => setPermCountry(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Maldives"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Current Address Details */}
+                <div className="bg-white p-3.5 rounded-xl border border-red-100/60 space-y-3">
+                  <div className="text-[11px] font-bold text-darkblue uppercase tracking-wider flex items-center space-x-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-red-600" />
+                    <span>Current Residential Address</span>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-500 block">House Name / Flat / Street / Address Line:</label>
+                    <input
+                      type="text"
                       value={currAddress}
                       onChange={(e) => setCurrAddress(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon resize-none font-medium"
-                      placeholder="Street, City, Atoll"
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                      placeholder="e.g. Flat 1204, Oceanic Tower"
                     />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">City / Island:</label>
+                      <input
+                        type="text"
+                        value={currCity}
+                        onChange={(e) => setCurrCity(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Hulhumale"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">State / Atoll:</label>
+                      <input
+                        type="text"
+                        value={currState}
+                        onChange={(e) => setCurrState(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Kaafu Atoll"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 block">Country:</label>
+                      <input
+                        type="text"
+                        value={currCountry}
+                        onChange={(e) => setCurrCountry(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-maroon font-medium"
+                        placeholder="e.g. Maldives"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -754,7 +866,7 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
             <div className="p-3 bg-sky-50 border border-sky-200 text-sky-900 rounded-2xl flex items-center space-x-2 text-[11px]">
               <ShieldCheck className="w-4 h-4 text-sky-700 shrink-0" />
               <span>
-                <strong>Member Directory Profile:</strong> You are viewing authorized public member details (Full Name, Common Name, Status, Investiture Date, Gender, Date of Birth, Age, and Current Address).
+                <strong>Member Directory Profile:</strong> You are viewing authorized public member details (Full Name, Common Name, Status, Investiture Date, Gender, Date of Birth, Age, Permanent Address, and Current Address).
               </span>
             </div>
           )}
@@ -803,29 +915,59 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
             </div>
           </div>
 
-          {/* SECTION: Current Address Information (Visible to Rovers & Explorers) */}
-          <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
-            <h3 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
-              <MapPin className="w-4 h-4 text-red-500" />
-              <span>Current Residence & Location</span>
-            </h3>
+          {/* SECTION: Registered Addresses (Permanent & Current - Visible to All Members) */}
+          <div className="space-y-4">
+            {/* Permanent Registered Address */}
+            <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
+              <h3 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
+                <Home className="w-4 h-4 text-maroon" />
+                <span>Permanent Registered Address</span>
+              </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-gray-200">
-              <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2 lg:col-span-4">
-                <span className="text-gray-500 font-semibold block text-[11px]">Current Address:</span>
-                <span className="font-medium text-gray-800 text-xs">{currentAddrInfo.addressLine}</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-gray-200">
+                <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2 lg:col-span-4">
+                  <span className="text-gray-500 font-semibold block text-[11px]">Permanent Address Line:</span>
+                  <span className="font-medium text-gray-800 text-xs">{permAddrInfo.addressLine}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg">
+                  <span className="text-gray-500 font-semibold block text-[11px]">City / Island:</span>
+                  <span className="font-bold text-darkblue text-xs">{permAddrInfo.city}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg">
+                  <span className="text-gray-500 font-semibold block text-[11px]">State / Atoll:</span>
+                  <span className="font-bold text-gray-800 text-xs">{permAddrInfo.state}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2">
+                  <span className="text-gray-500 font-semibold block text-[11px]">Country:</span>
+                  <span className="font-bold text-gray-800 text-xs">{permAddrInfo.country}</span>
+                </div>
               </div>
-              <div className="p-2 bg-gray-50 rounded-lg">
-                <span className="text-gray-500 font-semibold block text-[11px]">City / Island:</span>
-                <span className="font-bold text-darkblue text-xs">{currentAddrInfo.city}</span>
-              </div>
-              <div className="p-2 bg-gray-50 rounded-lg">
-                <span className="text-gray-500 font-semibold block text-[11px]">State / Atoll:</span>
-                <span className="font-bold text-gray-800 text-xs">{currentAddrInfo.state}</span>
-              </div>
-              <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2">
-                <span className="text-gray-500 font-semibold block text-[11px]">Country:</span>
-                <span className="font-bold text-gray-800 text-xs">{currentAddrInfo.country}</span>
+            </div>
+
+            {/* Current Residential Address */}
+            <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
+              <h3 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
+                <MapPin className="w-4 h-4 text-red-500" />
+                <span>Current Residential Address</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-gray-200">
+                <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2 lg:col-span-4">
+                  <span className="text-gray-500 font-semibold block text-[11px]">Current Address Line:</span>
+                  <span className="font-medium text-gray-800 text-xs">{currentAddrInfo.addressLine}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg">
+                  <span className="text-gray-500 font-semibold block text-[11px]">City / Island:</span>
+                  <span className="font-bold text-darkblue text-xs">{currentAddrInfo.city}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg">
+                  <span className="text-gray-500 font-semibold block text-[11px]">State / Atoll:</span>
+                  <span className="font-bold text-gray-800 text-xs">{currentAddrInfo.state}</span>
+                </div>
+                <div className="p-2 bg-gray-50 rounded-lg sm:col-span-2">
+                  <span className="text-gray-500 font-semibold block text-[11px]">Country:</span>
+                  <span className="font-bold text-gray-800 text-xs">{currentAddrInfo.country}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -924,54 +1066,38 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. Contact Details & Permanent Address */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Contact Channels */}
-                <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
-                  <h4 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
-                    <Phone className="w-4 h-4 text-emerald-600" />
-                    <span>Contact Channels (Secretary Only)</span>
-                  </h4>
-                  <div className="space-y-2 bg-white p-3 rounded-xl border border-gray-200 text-gray-700">
-                    <div className="flex justify-between border-b border-gray-100 pb-1.5">
-                      <span className="font-semibold text-gray-500">Mobile Number:</span>
-                      <span className="font-mono font-bold text-gray-800">
-                        {member.mobileNumber || member.phoneNumber || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-b border-gray-100 pb-1.5">
-                      <span className="font-semibold text-gray-500">WhatsApp:</span>
-                      <span className="font-mono font-bold text-emerald-700">
-                        {member.whatsappNumber || member.mobileNumber || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-b border-gray-100 pb-1.5">
-                      <span className="font-semibold text-gray-500">Email Address:</span>
-                      <span className="font-bold text-gray-800 truncate max-w-[170px]">{member.email || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between border-b border-gray-100 pb-1.5">
-                      <span className="font-semibold text-gray-500">Telegram:</span>
-                      <span className="font-bold text-sky-700">
-                        {member.telegramNumber || member.telegramTag || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-gray-500">Instagram:</span>
-                      <span className="font-bold text-pink-700">{member.instagramTag || 'N/A'}</span>
-                    </div>
+              {/* 3. Contact Details */}
+              <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
+                <h4 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
+                  <Phone className="w-4 h-4 text-emerald-600" />
+                  <span>Contact Channels (Secretary Only)</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-gray-200 text-gray-700">
+                  <div className="flex justify-between border-b sm:border-b-0 border-gray-100 pb-1.5 sm:pb-0">
+                    <span className="font-semibold text-gray-500">Mobile Number:</span>
+                    <span className="font-mono font-bold text-gray-800">
+                      {member.mobileNumber || member.phoneNumber || 'N/A'}
+                    </span>
                   </div>
-                </div>
-
-                {/* Permanent Address */}
-                <div className="bg-gray-50/80 border border-gray-200 rounded-2xl p-4 space-y-3">
-                  <h4 className="font-bold text-darkblue text-xs uppercase tracking-wider flex items-center space-x-2">
-                    <MapPin className="w-4 h-4 text-red-500" />
-                    <span>Permanent Registered Address (Secretary Only)</span>
-                  </h4>
-                  <div className="bg-white p-3.5 rounded-xl border border-gray-200 space-y-2 text-gray-700">
-                    <div className="text-gray-700">
-                      {renderAddressText(member.permanentAddress)}
-                    </div>
+                  <div className="flex justify-between border-b sm:border-b-0 border-gray-100 pb-1.5 sm:pb-0">
+                    <span className="font-semibold text-gray-500">WhatsApp:</span>
+                    <span className="font-mono font-bold text-emerald-700">
+                      {member.whatsappNumber || member.mobileNumber || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b sm:border-b-0 border-gray-100 pb-1.5 sm:pb-0">
+                    <span className="font-semibold text-gray-500">Email Address:</span>
+                    <span className="font-bold text-gray-800 truncate max-w-[170px]">{member.email || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between border-b sm:border-b-0 border-gray-100 pb-1.5 sm:pb-0">
+                    <span className="font-semibold text-gray-500">Telegram:</span>
+                    <span className="font-bold text-sky-700">
+                      {member.telegramNumber || member.telegramTag || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-gray-500">Instagram:</span>
+                    <span className="font-bold text-pink-700">{member.instagramTag || 'N/A'}</span>
                   </div>
                 </div>
               </div>

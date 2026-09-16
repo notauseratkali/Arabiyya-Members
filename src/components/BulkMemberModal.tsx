@@ -44,10 +44,12 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       'Common Name',
       'ID Card Number',
       'Date of Birth',
-      'Age',
       'Gender',
       'Permanent Address',
       'Current Address',
+      'Current Address City / Island',
+      'Current Address State / Atoll',
+      'Country',
       'Emergency Contact Name',
       'Emergency Relationship',
       'Emergency Contact Number',
@@ -58,7 +60,6 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       'Telegram Tag',
       'Whatsapp Number',
       'Instagram Tag',
-      'Award Goal',
       'Current Level',
       'Is New To Scouting',
       'Last Scout Group',
@@ -71,10 +72,12 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       'Ahmed',
       'A100001',
       '2004-03-15',
-      '22',
       'Male',
       'M. Rose, Henveiru, Male',
       'H. Oceanic Flat, Hulhumale Phase 1',
+      'Hulhumale',
+      'Kaafu Atoll',
+      'Maldives',
       'Hassan Ibrahim',
       'Parent',
       '+960 7712345',
@@ -85,7 +88,6 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       '@ahmed.scout',
       '+960 7901122',
       '@ahmed.scout',
-      'Baden-Powell Award',
       'Square',
       'No',
       '11th Male Scout Group',
@@ -97,11 +99,13 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       'Mariyam Aminath',
       'Mariyam',
       'A100002',
-      '2006-08-22',
-      '20',
+      '2009-08-22',
       'Female',
       'G. Sunshine, Galolhu, Male',
       'G. Sunshine, Galolhu, Male',
+      'Male',
+      'Kaafu Atoll',
+      'Maldives',
       'Aminath Ali',
       'Parent',
       '+960 7723456',
@@ -112,7 +116,6 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
       '@mariyam.adventures',
       '+960 7912233',
       '@mariyam.adventures',
-      'President Scout Award',
       'Squire',
       'Yes',
       '',
@@ -265,11 +268,17 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
           <div className="bg-sky-50/80 border border-sky-200 p-4 rounded-2xl space-y-2.5">
             <div className="font-bold text-darkblue text-sm flex items-center space-x-2">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Step 1: Download Member Template (All 24 Fields)</span>
+              <span>Step 1: Download Member Template (25 Fields)</span>
             </div>
             <p className="text-gray-600 leading-relaxed">
-              Includes all 24 tracked fields gathered on the Join page: Full Name, Common Name, ID Card Number, Date of Birth, Age, Gender, Permanent Address, Current Address, Emergency Contact Name, Emergency Relationship, Emergency Contact Number, Email Address, Mobile, Phone, Telegram Number, Telegram Tag, WhatsApp, Instagram Tag, Award Goal, Current Level, Is New To Scouting, Last Scout Group, Investiture Date, and Resignation Date.
+              Includes all tracked fields: Full Name, Common Name, ID Card Number, Date of Birth, Gender, Permanent Address, Current Address, Current Address City / Island, Current Address State / Atoll, Country, Emergency Contact Name, Emergency Relationship, Emergency Contact Number, Email Address, Mobile, Phone, Telegram Number, Telegram Tag, WhatsApp, Instagram Tag, Current Level, Is New To Scouting, Last Scout Group, Investiture Date, and Resignation Date.
             </p>
+            <div className="text-[11px] text-gray-500 bg-white/70 p-2.5 rounded-xl border border-sky-100 space-y-1">
+              <div>• <strong>Age:</strong> Calculated automatically from Date of Birth.</div>
+              <div>• <strong>Award Goal:</strong> Automatically assigned (<span className="text-darkblue font-semibold">President Scout Award</span> if under 18, <span className="text-darkblue font-semibold">Baden-Powell Award</span> if 18 or above).</div>
+              <div>• <strong>New Members:</strong> Added with <span className="text-amber-700 font-semibold">Pending Verification</span> status.</div>
+              <div>• <strong>Active Members:</strong> Protected against bulk alteration.</div>
+            </div>
             <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
@@ -381,7 +390,7 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
                   rows={6}
                   value={pasteData}
                   onChange={(e) => setPasteData(e.target.value)}
-                  placeholder={`Full Name\tID Card Number\tDate of Birth\tAge\tPermanent Address...\nAhmed Hassan\tA100001\t2004-03-15\t20\tM. Rose...`}
+                  placeholder={`Full Name\tID Card Number\tDate of Birth\tGender\tPermanent Address\tCurrent Address\tCurrent Address City / Island\tCurrent Address State / Atoll\tCountry...\nAhmed Hassan\tA100001\t2004-03-15\tMale\tM. Rose...\tH. Oceanic...\tHulhumale\tKaafu Atoll\tMaldives...`}
                   className="w-full p-3 font-mono text-[11px] border border-gray-300 rounded-xl bg-gray-50/50 focus:bg-white"
                 />
               </div>
@@ -398,10 +407,10 @@ export const BulkMemberModal: React.FC<BulkMemberModalProps> = ({
                 />
                 <div>
                   <span className="font-bold text-amber-950 block">
-                    Sync & update existing members matching ID Card Number
+                    Sync & update existing pending members matching ID Card Number
                   </span>
                   <span className="text-[11px] text-amber-900 block leading-tight">
-                    Allows updating Investiture Date, Status, Attendance %, and Contact details for members already in the system, while creating any new members.
+                    Allows updating details for pending members in the system while importing new members with Pending Verification status. Active members are protected and cannot be modified via bulk import.
                   </span>
                 </div>
               </label>

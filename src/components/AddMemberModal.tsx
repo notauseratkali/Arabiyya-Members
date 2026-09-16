@@ -27,7 +27,15 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [level, setLevel] = useState<ProgressionLevel>('Square');
 
   const [permAddress, setPermAddress] = useState('');
+  const [permCity, setPermCity] = useState('');
+  const [permState, setPermState] = useState('');
+  const [permCountry, setPermCountry] = useState('Maldives');
+
+  const [sameAsPerm, setSameAsPerm] = useState(false);
   const [currAddress, setCurrAddress] = useState('');
+  const [currCity, setCurrCity] = useState('');
+  const [currState, setCurrState] = useState('');
+  const [currCountry, setCurrCountry] = useState('Maldives');
 
   const [emergencyName, setEmergencyName] = useState('');
   const [emergencyRelationship, setEmergencyRelationship] = useState('Parent');
@@ -57,6 +65,22 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setError(null);
 
     try {
+      const structuredPermanentAddress = {
+        country: permCountry || 'Maldives',
+        state: permState || '',
+        city: permCity || '',
+        district: 'N/A',
+        addressLine: permAddress || ''
+      };
+
+      const structuredCurrentAddress = sameAsPerm ? structuredPermanentAddress : {
+        country: currCountry || 'Maldives',
+        state: currState || '',
+        city: currCity || '',
+        district: 'N/A',
+        addressLine: currAddress || ''
+      };
+
       const res = await fetch('/api/admin/members/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -72,8 +96,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           role,
           awardGoal,
           currentLevel: level,
-          permanentAddress: permAddress,
-          currentAddress: currAddress || permAddress,
+          permanentAddress: structuredPermanentAddress,
+          currentAddress: structuredCurrentAddress,
           emergencyName,
           emergencyRelationship,
           emergencyNumber,
@@ -384,32 +408,132 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           </div>
 
           {/* Section 4: Addresses */}
-          <div className="bg-gray-50/70 border border-gray-200 p-4 rounded-2xl space-y-3">
+          <div className="bg-gray-50/70 border border-gray-200 p-4 rounded-2xl space-y-4">
             <div className="font-bold text-darkblue text-xs uppercase tracking-wider">
-              {role === 'Admin' || role === 'Secretary' ? '4. Permanent Address' : '4. Permanent & Current Residential Addresses'}
+              4. Permanent & Current Residential Addresses
             </div>
-            <div>
-              <label className="block font-bold text-gray-700 mb-1">Permanent Address</label>
-              <input
-                type="text"
-                value={permAddress}
-                onChange={(e) => setPermAddress(e.target.value)}
-                placeholder="e.g. M. Rose, Henveiru, Male', Maldives"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white"
-              />
-            </div>
-            {role !== 'Admin' && role !== 'Secretary' && (
+
+            {/* Permanent Address */}
+            <div className="bg-white p-3.5 rounded-xl border border-gray-200 space-y-3">
+              <div className="text-[11px] font-bold text-darkblue uppercase tracking-wider">
+                Permanent Registered Address
+              </div>
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Current Address</label>
+                <label className="block font-bold text-gray-700 text-xs mb-1">House Name / Flat / Street / Address Line</label>
                 <input
                   type="text"
-                  value={currAddress}
-                  onChange={(e) => setCurrAddress(e.target.value)}
-                  placeholder="e.g. Flat 1204, Oceanic Tower, Hulhumale Phase 1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white"
+                  value={permAddress}
+                  onChange={(e) => setPermAddress(e.target.value)}
+                  placeholder="e.g. M. Rose, Henveiru"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
                 />
               </div>
-            )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-bold text-gray-700 text-xs mb-1">City / Island</label>
+                  <input
+                    type="text"
+                    value={permCity}
+                    onChange={(e) => setPermCity(e.target.value)}
+                    placeholder="e.g. Male'"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 text-xs mb-1">State / Atoll</label>
+                  <input
+                    type="text"
+                    value={permState}
+                    onChange={(e) => setPermState(e.target.value)}
+                    placeholder="e.g. Kaafu Atoll"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 text-xs mb-1">Country</label>
+                  <input
+                    type="text"
+                    value={permCountry}
+                    onChange={(e) => setPermCountry(e.target.value)}
+                    placeholder="e.g. Maldives"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Current Address */}
+            <div className="bg-white p-3.5 rounded-xl border border-gray-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-darkblue uppercase tracking-wider">
+                  Current Residential Address
+                </span>
+                <label className="flex items-center space-x-1.5 text-xs text-gray-600 cursor-pointer font-medium">
+                  <input
+                    type="checkbox"
+                    checked={sameAsPerm}
+                    onChange={(e) => {
+                      setSameAsPerm(e.target.checked);
+                      if (e.target.checked) {
+                        setCurrAddress(permAddress);
+                        setCurrCity(permCity);
+                        setCurrState(permState);
+                        setCurrCountry(permCountry);
+                      }
+                    }}
+                    className="rounded text-maroon focus:ring-maroon h-3.5 w-3.5"
+                  />
+                  <span>Same as permanent address</span>
+                </label>
+              </div>
+
+              {!sameAsPerm && (
+                <>
+                  <div>
+                    <label className="block font-bold text-gray-700 text-xs mb-1">House Name / Flat / Street / Address Line</label>
+                    <input
+                      type="text"
+                      value={currAddress}
+                      onChange={(e) => setCurrAddress(e.target.value)}
+                      placeholder="e.g. Flat 1204, Oceanic Tower, Hulhumale Phase 1"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block font-bold text-gray-700 text-xs mb-1">City / Island</label>
+                      <input
+                        type="text"
+                        value={currCity}
+                        onChange={(e) => setCurrCity(e.target.value)}
+                        placeholder="e.g. Hulhumale"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-gray-700 text-xs mb-1">State / Atoll</label>
+                      <input
+                        type="text"
+                        value={currState}
+                        onChange={(e) => setCurrState(e.target.value)}
+                        placeholder="e.g. Kaafu Atoll"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-gray-700 text-xs mb-1">Country</label>
+                      <input
+                        type="text"
+                        value={currCountry}
+                        onChange={(e) => setCurrCountry(e.target.value)}
+                        placeholder="e.g. Maldives"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Section 5: Emergency & Attendance */}

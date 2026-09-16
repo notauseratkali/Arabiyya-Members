@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { safeStorage } from '../utils/safeStorage';
 import { 
   Shield, 
   Calendar, 
@@ -23,7 +24,8 @@ import {
   GraduationCap,
   TrendingUp,
   Landmark,
-  BookOpen
+  BookOpen,
+  BookMarked
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -41,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
-    return localStorage.getItem('sidebar-collapsed') === 'true';
+    return safeStorage.getItem('sidebar-collapsed') === 'true';
   });
 
   // Strict requirement: No sidebar while signed out on any page
@@ -58,13 +60,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navLinks = user ? [
     { name: 'Dashboard', path: '/dashboard', icon: Shield, badge: null },
     { name: 'Members', path: '/members', icon: Users, badge: null },
-    { name: 'Our Events', path: '/events', icon: Calendar, badge: null },
-    { name: 'My Attendance', path: '/attendance', icon: CheckSquare, badge: null },
     { name: 'Courses', path: '/courses', icon: GraduationCap, badge: null },
+    { name: 'Log Book', path: '/logbook', icon: BookMarked, badge: null },
+    { name: 'Finance', path: '/finance', icon: Landmark, badge: null },
+    { name: 'Events', path: '/events', icon: Calendar, badge: null },
+    { name: 'Attendance', path: '/attendance', icon: CheckSquare, badge: null },
     { name: 'Progress', path: '/progress', icon: TrendingUp, badge: null },
     { name: 'Meeting Minutes', path: '/meeting-minutes', icon: FileText, badge: null },
-    { name: 'Rover Policy', path: '/policy', icon: BookOpen, badge: null },
-    { name: 'Finance', path: '/finance', icon: Landmark, badge: null }
+    { name: 'Rover Policy', path: '/policy', icon: BookOpen, badge: null }
   ] : [
     { name: 'Dashboard', path: '/dashboard', icon: Shield, badge: null },
     { name: 'Join / Sign Up', path: '/join', icon: UserPlus, badge: null },
@@ -240,7 +243,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               const newState = !isCollapsed;
               setIsCollapsed(newState);
-              localStorage.setItem('sidebar-collapsed', String(newState));
+              safeStorage.setItem('sidebar-collapsed', String(newState));
             }}
             className="w-7 h-7 bg-gray-50 hover:bg-gray-100 border border-gray-200 hover:border-gray-300 text-gray-500 hover:text-darkblue rounded-lg flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
             title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}

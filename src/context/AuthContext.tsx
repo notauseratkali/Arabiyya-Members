@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { fetchWithRetry } from '../utils/fetchUtils';
+import { safeStorage } from '../utils/safeStorage';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -22,7 +23,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    try {
+      const savedUser = safeStorage.getItem('arabiyya_auth_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [adminRoles, setAdminRoles] = useState<{ id: string; name: string; description: string; assignedUsernames: string[] }[]>([]);
@@ -56,17 +64,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Synchronize local session and Firebase Auth state
   useEffect(() => {
-    const savedUser = localStorage.getItem('arabiyya_auth_user');
+    const savedUser = safeStorage.getItem('arabiyya_auth_user');
     if (savedUser) {
       try {
         setUser(JSON.parse(savedUser));
       } catch (e) {
-        localStorage.removeItem('arabiyya_auth_user');
+        safeStorage.removeItem('arabiyya_auth_user');
       }
     }
 
+    // Failsafe timer: If Firebase Auth takes more than 1500ms (e.g. offline, firewalled, slow network), release isLoading
+    const failsafeTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1500);
+
     // Listen to Firebase Auth state
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      clearTimeout(failsafeTimer);
       setFirebaseUser(fbUser);
 
       if (fbUser) {
@@ -116,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             }
             setUser(data);
-            localStorage.setItem('arabiyya_auth_user', JSON.stringify(data));
+            safeStorage.setItem('arabiyya_auth_user', JSON.stringify(data));
           } else {
             // Check if user is admin
             const isAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
@@ -140,7 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             await setDoc(userDocRef, fallbackUser, { merge: true });
             setUser(fallbackUser);
-            localStorage.setItem('arabiyya_auth_user', JSON.stringify(fallbackUser));
+            safeStorage.setItem('arabiyya_auth_user', JSON.stringify(fallbackUser));
           }
         } catch (err) {
           console.error('[Firebase Auth Sync Error]:', err);
@@ -150,12 +164,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(failsafeTimer);
+      unsubscribe();
+    };
   }, []);
 
   const login = (userData: AuthUser) => {
     setUser(userData);
-    localStorage.setItem('arabiyya_auth_user', JSON.stringify(userData));
+    safeStorage.setItem('arabiyya_auth_user', JSON.stringify(userData));
 
     // Also persist user profile to Firestore
     try {
@@ -196,7 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      localStorage.setItem('arabiyya_auth_user', JSON.stringify(merged));
+      safeStorage.setItem('arabiyya_auth_user', JSON.stringify(merged));
       // Persist to Firestore as well
       try {
         const docId = merged.id || merged.idCardNumber || merged.username || 'admin';
@@ -219,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setUser(null);
     setFirebaseUser(null);
-    localStorage.removeItem('arabiyya_auth_user');
+    safeStorage.removeItem('arabiyya_auth_user');
   };
 
   return (

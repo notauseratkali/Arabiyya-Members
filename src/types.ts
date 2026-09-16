@@ -116,6 +116,34 @@ export interface MeetingMinute {
   isPublished: boolean;
 }
 
+export type LogBookCategory = 'Camp' | 'Hike' | 'Service' | 'Training' | 'Meeting' | 'Milestone' | 'Other';
+export type LogBookStatus = 'Draft' | 'Pending Review' | 'Verified' | 'Needs Revision';
+
+export interface LogBookEntry {
+  id: string;
+  memberId: string;
+  memberName: string;
+  memberRole?: string;
+  title: string;
+  category: LogBookCategory;
+  date: string;
+  endDate?: string;
+  location: string;
+  durationHours?: number;
+  hikingKm?: number;
+  campNights?: number;
+  roleInActivity?: string;
+  description: string;
+  learningPoints?: string;
+  photoUrls?: string[];
+  status: LogBookStatus;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AttendanceRecord {
   id: string;
   eventId: string;
@@ -178,6 +206,7 @@ export interface AnnouncementItem {
   message: string;
   category: 'General' | 'Important' | 'Urgent' | 'Event' | 'Investiture' | 'Training';
   targetAudience: 'All' | 'Explorers' | 'Rovers' | 'Leaders' | 'Candidates';
+  targetMemberIds?: string[];
   channels: ('Email' | 'Telegram' | 'InApp')[];
   actionUrl?: string;
   actionText?: string;
@@ -187,6 +216,8 @@ export interface AnnouncementItem {
   telegramDelivered?: boolean;
   telegramError?: string;
   inAppActive?: boolean;
+  readBy?: string[];
+  isRead?: boolean;
 }
 
 export interface SystemSettings {
