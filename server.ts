@@ -3825,6 +3825,45 @@ async function start() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
+
+    // Dynamic dev-mode interceptor to prevent blank pages when root index.html contains production bundle paths
+    app.use(async (req, res, next) => {
+      const url = req.originalUrl;
+      const isHtmlRequest = (req.headers.accept?.includes('text/html') || url === '/' || url.endsWith('.html')) && !url.includes('.');
+      
+      if (isHtmlRequest && !url.startsWith('/api/')) {
+        try {
+          const indexPath = path.join(process.cwd(), 'index.html');
+          if (fs.existsSync(indexPath)) {
+            let html = fs.readFileSync(indexPath, 'utf-8');
+            
+            // If the index.html on disk contains compiled production tags, hot-swap them back to the development script
+            if (html.includes('/assets/index-') || html.includes('crossorigin')) {
+              // Replace any production bundles with dev script
+              html = html.replace(
+                /<script\s+type="module"\s+crossorigin\s+src="\/assets\/index-[^>]+><\/script>/gi,
+                '<script type="module" src="/src/main.tsx"></script>'
+              );
+              html = html.replace(
+                /<script[^>]+src="\/assets\/index-[^>]+"[^>]*><\/script>/gi,
+                '<script type="module" src="/src/main.tsx"></script>'
+              );
+              // Remove any modulepreload tags and compiled CSS styles
+              html = html.replace(/<link\s+rel="modulepreload"[^>]+>/gi, '');
+              html = html.replace(/<link\s+rel="stylesheet"\s+crossorigin\s+href="\/assets\/index-[^>]+>/gi, '');
+            }
+            
+            // Always run Vite's HTML transform to inject the Vite client and enable HMR/Dev compilation
+            const transformedHtml = await vite.transformIndexHtml(url, html);
+            return res.status(200).set({ 'Content-Type': 'text/html' }).end(transformedHtml);
+          }
+        } catch (e) {
+          console.error('[Vite Dev Interceptor Error]:', e);
+        }
+      }
+      next();
+    });
+
     app.use(vite.middlewares);
   } else {
     // Robust resolution of distPath across local and containerized deployments
