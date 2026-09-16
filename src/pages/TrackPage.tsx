@@ -3,6 +3,7 @@ import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { ApplicationPipelineStatus } from '../types';
 import { LogoImage } from '../components/LogoImage';
 import { useLogo } from '../context/LogoContext';
+import { fetchWithRetry } from '../utils/fetchUtils';
 import { Search, Mail, ShieldCheck, CheckCircle2, Clock, Calendar, ArrowRight, ArrowLeft, AlertCircle, Send } from 'lucide-react';
 
 interface TrackPageProps {
@@ -83,7 +84,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/track/otp', {
+      const res = await fetchWithRetry('/api/track/otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idCardNumber })
@@ -151,7 +152,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/track/verify', {
+      const res = await fetchWithRetry('/api/track/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idCardNumber, otp })

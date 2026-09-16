@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogoImage } from '../components/LogoImage';
 import { useLogo } from '../context/LogoContext';
+import { fetchWithRetry } from '../utils/fetchUtils';
 import { KeyRound, ShieldCheck, ArrowLeft, ArrowRight, CheckCircle2, Send } from 'lucide-react';
 
 interface ForgotPasswordPageProps {
@@ -40,7 +41,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
 
     const intervalId = setInterval(async () => {
       try {
-        const res = await fetch('/api/telegram/check-start', {
+        const res = await fetchWithRetry('/api/telegram/check-start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -75,7 +76,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/forgot-password/otp', {
+      const res = await fetchWithRetry('/api/auth/forgot-password/otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idCardNumber })
@@ -149,7 +150,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onNaviga
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/forgot-password/reset', {
+      const res = await fetchWithRetry('/api/auth/forgot-password/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idCardNumber, otp, newPassword })

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LogoImage } from '../components/LogoImage';
 import { useLogo } from '../context/LogoContext';
+import { fetchWithRetry } from '../utils/fetchUtils';
 import { Search, UserPlus, ArrowRight, Lock } from 'lucide-react';
 
 interface LoginPageProps {
@@ -27,7 +28,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate, notice }) => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetchWithRetry('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

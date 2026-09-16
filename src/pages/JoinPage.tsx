@@ -3,6 +3,7 @@ import { ProgressionLevel, RoleSection } from '../types';
 import { CelebrationModal } from '../components/CelebrationModal';
 import { LogoImage } from '../components/LogoImage';
 import { useLogo } from '../context/LogoContext';
+import { fetchWithRetry } from '../utils/fetchUtils';
 import { 
   COUNTRIES, 
   getStatesForCountry, 
@@ -551,7 +552,7 @@ export const JoinPage: React.FC<JoinPageProps> = ({ onNavigate }) => {
     };
 
     try {
-      const res = await fetch('/api/signup/member', {
+      const res = await fetchWithRetry('/api/signup/member', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -613,7 +614,7 @@ export const JoinPage: React.FC<JoinPageProps> = ({ onNavigate }) => {
     };
 
     try {
-      const res = await fetch('/api/signup/leader', {
+      const res = await fetchWithRetry('/api/signup/leader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

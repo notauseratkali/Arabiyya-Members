@@ -1,7 +1,9 @@
+import { handleClientApiFallback } from './apiClient';
+
 /**
  * A highly resilient fetch wrapper with automatic exponential backoff retries.
  * Prevents transient network or server startup/restart failures (e.g., "TypeError: Failed to fetch")
- * and prevents JSON parsing crashes when endpoints return HTML fallback pages (such as during static hosting or cookie checks).
+ * and handles static hosting environments (such as GitHub Pages) where live backend API endpoints are unreachable.
  */
 export async function fetchWithRetry(
   url: string,
@@ -12,20 +14,24 @@ export async function fetchWithRetry(
   try {
     const res = await fetch(url, options);
 
-    // Shield against HTML fallback responses (e.g. static hosting returning index.html or reverse-proxy cookie check pages)
-    // so calling res.json() returns a safe empty fallback instead of crashing with:
-    // SyntaxError: Unexpected token '<', "<!doctype "... is not valid JSON
+    // If endpoint returns 404 or HTML page for an /api/ request on static hosting (e.g. GitHub Pages)
+    const contentType = res.headers.get('content-type') || '';
+    if (url.includes('/api/') && (!res.ok || (!contentType.includes('application/json') && !contentType.includes('+json')))) {
+      if (res.status === 404 || contentType.includes('text/html')) {
+        console.warn(`[fetchWithRetry] Delegating static hosting request for ${url} to client API fallback`);
+        return await handleClientApiFallback(url, options);
+      }
+    }
+
     const originalJson = res.json.bind(res);
     res.json = async () => {
       try {
-        const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json') && !contentType.includes('+json')) {
           const text = await res.text();
           const trimmed = text.trim();
           if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
             return JSON.parse(trimmed);
           }
-          // Return sensible empty fallback depending on common endpoint structures
           if (url.includes('unread-count') || url.includes('count')) {
             return { count: 0, unreadCount: 0 };
           }
@@ -48,6 +54,10 @@ export async function fetchWithRetry(
 
     return res;
   } catch (err) {
+    if (url.includes('/api/')) {
+      console.warn(`[fetchWithRetry] Network error for ${url}, switching to client API fallback`);
+      return await handleClientApiFallback(url, options);
+    }
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(url, options, retries - 1, delay * 1.5);
@@ -55,4 +65,5 @@ export async function fetchWithRetry(
     throw err;
   }
 }
+
 
