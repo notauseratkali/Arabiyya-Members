@@ -31,8 +31,31 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { safeStorage } from './utils/safeStorage';
 
 function getPath(): string {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  let path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (path.endsWith('/index.html')) {
+    path = path.replace(/\/index\.html$/, '') || '/';
+  }
+  if (path.endsWith('.html')) {
+    path = path.replace(/\.html$/, '');
+  }
   if (path === '/login') return '/signin';
+
+  const knownRoutes = [
+    '/signin', '/join', '/signup', '/forgot-password', '/track', '/policy',
+    '/dashboard', '/events', '/attendance', '/meeting-minutes', '/profile',
+    '/members', '/courses', '/logbook', '/log-book', '/progress', '/finance',
+    '/syllabus', '/requests', '/announcements', '/settings', '/admin',
+    '/admin/requests', '/admin/settings', '/admin/syllabus'
+  ];
+
+  if (!knownRoutes.includes(path) && path !== '/') {
+    for (const r of knownRoutes) {
+      if (path.endsWith(r)) {
+        return r;
+      }
+    }
+  }
+
   return path;
 }
 
