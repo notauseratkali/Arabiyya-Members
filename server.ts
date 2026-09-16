@@ -1082,23 +1082,15 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  // Check member with standard username matching, allowing ID Card ONLY for first-time sign-in
+  // Check member with standard username matching, allowing ID Card or Email flexibly
   const queryInput = (username || '').trim().toLowerCase();
   const member = memberApplications.find(m => {
     const uName = (m.username || '').toLowerCase();
     const idCard = (m.idCardNumber || '').toLowerCase();
+    const email = (m.email || '').toLowerCase();
     
-    // Determine if the member has already set up custom credentials
-    const hasSetCustomCreds = !!(m.passwordHash && m.username && m.username !== m.idCardNumber);
-    
-    let matchesId = false;
-    if (hasSetCustomCreds) {
-      // Must use their configured custom username
-      matchesId = uName === queryInput;
-    } else {
-      // First-time login: allow ID Card or username
-      matchesId = idCard === queryInput || uName === queryInput;
-    }
+    // Allow login via custom username, registered ID card number, or email address
+    const matchesId = uName === queryInput || idCard === queryInput || email === queryInput;
     
     // Support phone number without country code as initial password for bulk imported members
     const normInputPassword = (password || '').trim().replace(/\D/g, '');
