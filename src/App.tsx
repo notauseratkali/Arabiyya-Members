@@ -32,17 +32,20 @@ import { safeStorage } from './utils/safeStorage';
 
 function getNormalizedPath(): string {
   let raw = window.location.pathname;
-  if (window.location.search && window.location.search.includes('p=')) {
-    const match = window.location.search.match(/[?&]p=([^&]*)/);
+  const search = window.location.search;
+  const hash = window.location.hash;
+
+  if (search && search.includes('p=')) {
+    const match = search.match(/[?&]p=([^&]*)/);
     if (match && match[1]) {
       raw = decodeURIComponent(match[1]).replace(/~and~/g, '&');
     }
-  } else if (window.location.hash && window.location.hash.startsWith('#/')) {
-    raw = window.location.hash.slice(1);
+  } else if (hash && hash.startsWith('#/')) {
+    raw = hash.slice(1);
   }
 
   let clean = raw.replace(/\/+$/, '');
-  if (!clean) return '/';
+  if (!clean) clean = '/';
 
   const knownRoutes = [
     '/signin', '/join', '/signup', '/forgot-password', '/track', '/policy',
@@ -52,14 +55,27 @@ function getNormalizedPath(): string {
     '/admin/requests', '/admin/settings', '/admin/syllabus'
   ];
 
-  if (clean === '/login') return '/signin';
-  if (knownRoutes.includes(clean)) return clean;
-
-  for (const r of knownRoutes) {
-    if (clean.endsWith(r)) return r;
+  let result = clean;
+  if (clean === '/login') result = '/signin';
+  else if (!knownRoutes.includes(clean)) {
+    for (const r of knownRoutes) {
+      if (clean.endsWith(r)) {
+        result = r;
+        break;
+      }
+    }
   }
 
-  return clean;
+  console.log('[Router] getNormalizedPath =>', {
+    pathname: window.location.pathname,
+    search,
+    hash,
+    raw,
+    clean,
+    result
+  });
+
+  return result;
 }
 
 function AppContent() {
@@ -67,11 +83,13 @@ function AppContent() {
   const [splashActive, setSplashActive] = useState(true);
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const norm = getNormalizedPath();
+    const savedUser = safeStorage.getItem('arabiyya_auth_user');
+    let initPath = norm;
     if (norm === '/' || norm === '/login') {
-      const savedUser = safeStorage.getItem('arabiyya_auth_user');
-      return savedUser ? '/dashboard' : '/signin';
+      initPath = savedUser ? '/dashboard' : '/signin';
     }
-    return norm;
+    console.log('[AppContent] Initial path state computed:', { norm, hasSavedUser: !!savedUser, initPath });
+    return initPath;
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const touchStartX = React.useRef(0);
@@ -84,12 +102,9 @@ function AppContent() {
     const touchEndX = e.changedTouches[0].clientX;
     const deltaX = touchEndX - touchStartX.current;
 
-    // Swipe right (open sidebar)
     if (deltaX > 50 && !mobileSidebarOpen && window.innerWidth < 768) {
       setMobileSidebarOpen(true);
-    }
-    // Swipe left (close sidebar) - only if sidebar is open
-    else if (deltaX < -50 && mobileSidebarOpen) {
+    } else if (deltaX < -50 && mobileSidebarOpen) {
       setMobileSidebarOpen(false);
     }
   };
@@ -105,12 +120,12 @@ function AppContent() {
     let targetPath = (!path || path === '/' || path === '/login') ? (user ? '/dashboard' : '/signin') : path;
     if (targetPath === '/login') targetPath = '/signin';
     
-    // If not logged in and target is a protected route, redirect to /signin
     const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
     if (!user && !publicRoutes.includes(targetPath)) {
       targetPath = '/signin';
     }
 
+    console.log('[AppContent] navigate requested:', { requested: path, resolved: targetPath, hasUser: !!user });
     window.history.pushState({}, '', targetPath);
     setCurrentPath(targetPath);
     window.scrollTo(0, 0);
@@ -124,6 +139,7 @@ function AppContent() {
       if (!user && !publicRoutes.includes(targetPath)) {
         targetPath = '/signin';
       }
+      console.log('[AppContent] popstate event handled:', { norm, targetPath, hasUser: !!user });
       setCurrentPath(targetPath);
     };
     window.addEventListener('popstate', handlePopState);
@@ -132,25 +148,27 @@ function AppContent() {
 
   // Route protection and redirection
   useEffect(() => {
+    console.log('[AppContent] Protection Effect evaluate:', { currentPath, isLoading, userEmail: user?.email });
+
     if (isLoading) return;
 
-    // Clean up SPA redirect query parameter (?p=/...) if present
     if (window.location.search && window.location.search.includes('p=')) {
       const cleanPath = currentPath || (user ? '/dashboard' : '/signin');
+      console.log('[AppContent] Cleaning up ?p= parameter => replaceState to:', cleanPath);
       window.history.replaceState({}, '', cleanPath);
     }
 
     const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
 
     if (!user) {
-      // If logged out and not on a public route, or on /login or /: redirect to /signin
       if (!publicRoutes.includes(currentPath) || currentPath === '/login' || currentPath === '/') {
+        console.log('[AppContent] Unauthenticated access to protected route => redirecting to /signin');
         window.history.replaceState({}, '', '/signin');
         setCurrentPath('/signin');
       }
     } else {
-      // If logged in and on root /, /login, or /signin: redirect to /dashboard
       if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
+        console.log('[AppContent] Authenticated user on auth page => redirecting to /dashboard');
         window.history.replaceState({}, '', '/dashboard');
         setCurrentPath('/dashboard');
       }
@@ -158,6 +176,8 @@ function AppContent() {
   }, [user, isLoading, currentPath]);
 
   const renderPage = () => {
+    console.log('[AppContent] renderPage rendering:', { currentPath, isLoading, userEmail: user?.email });
+
     if (isLoading) {
       return (
         <div className="min-h-[70vh] flex items-center justify-center bg-gray-50">
