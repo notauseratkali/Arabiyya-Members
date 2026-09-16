@@ -43,7 +43,7 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
     }
 
     try {
-      const snap = await getDocs(collection(db, 'members'));
+      const snap = await getDocs(collection(db, 'member_applications'));
       let matchedMember: any = null;
 
       snap.forEach(docSnap => {
@@ -105,7 +105,7 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
   // 3. Members list
   if (url.includes('/api/members') && method === 'GET') {
     try {
-      const snap = await getDocs(collection(db, 'members'));
+      const snap = await getDocs(collection(db, 'member_applications'));
       const list: any[] = [];
       snap.forEach(docSnap => {
         list.push({ id: docSnap.id, ...docSnap.data() });
@@ -153,9 +153,11 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
   // 6. Signup member or leader
   if (url.includes('/api/signup/member') || url.includes('/api/signup/leader')) {
     try {
-      const newId = 'MEMBER-' + Date.now();
+      const isLeader = url.includes('/api/signup/leader');
+      const targetCollection = isLeader ? 'leader_applications' : 'member_applications';
+      const newId = (isLeader ? 'LEADER-' : 'MEMBER-') + Date.now();
       const newMember = { ...bodyData, id: newId, status: 'Pending', createdAt: new Date().toISOString() };
-      await setDoc(doc(db, 'members', newId), newMember);
+      await setDoc(doc(db, targetCollection, newId), newMember);
       return new Response(JSON.stringify({ success: true, memberId: newId }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
