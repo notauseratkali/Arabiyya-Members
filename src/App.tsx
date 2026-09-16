@@ -173,9 +173,6 @@ function AppContent() {
       return <JoinPage onNavigate={navigate} />;
     }
     if (currentPath === '/login' || currentPath === '/signin') {
-      if (user) {
-        return <DashboardPage onNavigate={navigate} />;
-      }
       return <LoginPage onNavigate={navigate} />;
     }
     if (currentPath === '/forgot-password') {
@@ -245,7 +242,7 @@ function AppContent() {
     }
   };
 
-  const showLoader = splashActive && !user;
+  const showLoader = false;
 
   return (
     <div 
