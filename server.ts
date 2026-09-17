@@ -331,13 +331,33 @@ try {
     const fbApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
     // Suppress benign connection pool warnings in the server logs
     setLogLevel('error');
-    const dbId = firebaseConfigData.firestoreDatabaseId && firebaseConfigData.firestoreDatabaseId !== '(default)'
-      ? firebaseConfigData.firestoreDatabaseId
-      : '(default)';
-    db = initializeFirestore(fbApp, {
-      experimentalForceLongPolling: true
-    }, dbId);
-    console.log('[Firestore initialized successfully on server]');
+    const configuredServerDbId = firebaseConfigData.firestoreDatabaseId;
+    try {
+      if (configuredServerDbId && configuredServerDbId !== '(default)') {
+        try {
+          db = initializeFirestore(fbApp, {
+            experimentalForceLongPolling: true
+          }, configuredServerDbId);
+          console.log('[Firestore initialized successfully on server with dbId:', configuredServerDbId);
+        } catch (serverPrimaryErr) {
+          console.warn('[Firestore] Failed to initialize named database on server, falling back to default:', serverPrimaryErr);
+          db = initializeFirestore(fbApp, {
+            experimentalForceLongPolling: true
+          });
+          console.log('[Firestore initialized successfully on server with default database]');
+        }
+      } else {
+        db = initializeFirestore(fbApp, {
+          experimentalForceLongPolling: true
+        });
+        console.log('[Firestore initialized successfully on server with default database]');
+      }
+    } catch (initErr) {
+      console.error('[Firestore] Server initialization error, falling back to default:', initErr);
+      db = initializeFirestore(fbApp, {
+        experimentalForceLongPolling: true
+      });
+    }
   } else {
     console.warn('[Notice] firebase-applet-config.json not found on disk, running with local in-memory store.');
   }

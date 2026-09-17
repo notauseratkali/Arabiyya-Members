@@ -32,21 +32,32 @@ try {
   // ignore
 }
 
-// Initialize Firestore (with databaseId if specified) and force long polling
-const dbId = firebaseConfigData.firestoreDatabaseId && firebaseConfigData.firestoreDatabaseId !== '(default)'
-  ? firebaseConfigData.firestoreDatabaseId
-  : '(default)';
-
+// Initialize Firestore (with databaseId fallback) and force long polling
+const configuredDbId = firebaseConfigData.firestoreDatabaseId;
 let firestoreInstance: Firestore;
+
 try {
-  firestoreInstance = initializeFirestore(app, {
-    experimentalForceLongPolling: true
-  }, dbId);
+  if (configuredDbId && configuredDbId !== '(default)') {
+    try {
+      firestoreInstance = initializeFirestore(app, {
+        experimentalForceLongPolling: true
+      }, configuredDbId);
+    } catch (primaryErr) {
+      console.warn('[Firebase] Failed to initialize named database, falling back to default:', primaryErr);
+      firestoreInstance = initializeFirestore(app, {
+        experimentalForceLongPolling: true
+      });
+    }
+  } else {
+    firestoreInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true
+    });
+  }
 } catch (e) {
   try {
-    firestoreInstance = getFirestore(app, dbId);
+    firestoreInstance = getFirestore(app);
   } catch (err) {
-    console.error('[Firebase] Firestore fallback:', err);
+    console.error('[Firebase] Firestore fallback error:', err);
     firestoreInstance = getFirestore(app);
   }
 }
