@@ -30,19 +30,20 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
 
   // 1. Auth Login
   if (url.includes('/api/auth/login') && method === 'POST') {
-    const { username, password } = bodyData;
+    const { username, password } = bodyData || {};
     const queryInput = (username || '').trim().toLowerCase();
     const queryPass = (password || '').trim();
+    const queryPassLower = queryPass.toLowerCase();
 
     const adminEmails = ['it@arabiyyascouts.org', 'nazihnafiz@gmail.com', 'admin@arabiyyarovers.net'];
-    const adminUsernames = ['admin'];
+    const adminUsernames = ['admin', 'administrator', 'admin-001'];
     const adminIdCards = ['a000000'];
 
     const isDocAdmin = adminUsernames.includes(queryInput) || 
                         adminIdCards.includes(queryInput) || 
                         adminEmails.includes(queryInput);
 
-    if (isDocAdmin && (queryPass === 'admin123' || queryPass === '123')) {
+    if (isDocAdmin && (queryPassLower === 'admin123' || queryPassLower === '123' || queryPassLower === 'admin')) {
       return new Response(JSON.stringify({ success: true, user: DEFAULT_ADMIN }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
