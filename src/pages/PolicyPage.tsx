@@ -27,7 +27,8 @@ import {
   AlignRight,
   Sliders,
   Camera,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react';
 
 interface PolicyPageProps {
@@ -41,6 +42,30 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
   const [policies, setPolicies] = useState<PolicyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Dropdown accordion state (all collapsed on entry, single section at a time)
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+
+  const togglePolicyExpanded = (id: string) => {
+    setExpandedIds(prev => {
+      const currentlyOpen = !!prev[id];
+      if (currentlyOpen) {
+        return {}; // collapse if already open
+      } else {
+        return { [id]: true }; // expand ONLY this section, collapsing all others
+      }
+    });
+  };
+
+  const expandAll = () => {
+    const all: Record<string, boolean> = {};
+    policies.forEach(p => { all[p.id] = true; });
+    setExpandedIds(all);
+  };
+
+  const collapseAll = () => {
+    setExpandedIds({});
+  };
 
   // CRUD Modal states for Secretary
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -113,6 +138,27 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
         safeCap.toLowerCase().includes(q);
     })
   );
+
+  const topLevelPolicies = sortPolicyItems(
+    policies.filter(p => !p.number || !p.number.includes('.'))
+  );
+
+  const filteredTopLevel = topLevelPolicies.filter(parent => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const matchParent = (parent.number || '').toLowerCase().includes(q) ||
+      (parent.title || '').toLowerCase().includes(q) ||
+      (parent.content || '').toLowerCase().includes(q);
+    
+    const children = policies.filter(p => p.number && p.number.startsWith(`${parent.number}.`));
+    const matchChild = children.some(child => 
+      (child.number || '').toLowerCase().includes(q) ||
+      (child.title || '').toLowerCase().includes(q) ||
+      (child.content || '').toLowerCase().includes(q) ||
+      (child.imageCaption || '').toLowerCase().includes(q)
+    );
+    return matchParent || matchChild;
+  });
 
   // Open Create Modal
   const handleOpenCreateModal = (parentNumber?: string) => {
@@ -505,16 +551,39 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* Expand/Collapse All Toolbar */}
+      {!loading && topLevelPolicies.length > 0 && (
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs text-gray-500 font-medium">
+            Showing {filteredTopLevel.length} policy sections (Hierarchical Accordion View)
+          </span>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={expandAll}
+              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all shadow-2xs"
+            >
+              Expand All
+            </button>
+            <button
+              onClick={collapseAll}
+              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all shadow-2xs"
+            >
+              Collapse All
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Hierarchical Policy List */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         {loading ? (
           <div className="bg-white rounded-3xl p-12 text-center text-gray-400 text-xs font-semibold">
             Loading Rover Operating Policy...
           </div>
-        ) : filteredPolicies.length === 0 ? (
+        ) : filteredTopLevel.length === 0 ? (
           <div className="bg-white rounded-3xl p-12 text-center text-gray-500 text-xs space-y-2 border border-gray-200">
             <AlertCircle className="w-8 h-8 text-gray-400 mx-auto" />
-            <p className="font-bold">No matching policy clauses found.</p>
+            <p className="font-bold">No matching policy sections found.</p>
             {searchQuery && (
               <button onClick={() => setSearchQuery('')} className="text-maroon font-bold underline">
                 Clear Search Filter
@@ -522,48 +591,73 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
             )}
           </div>
         ) : (
-          filteredPolicies.map((item) => {
-            const safeNum = item.number || '';
-            const style = getDepthStyle(safeNum);
+          filteredTopLevel.map((parent) => {
+            const isExpanded = !!expandedIds[parent.id];
+            const children = sortPolicyItems(
+              policies.filter(p => p.number && p.number.startsWith(`${parent.number}.`))
+            );
 
             return (
-              <div key={item.id} className={style.containerClass}>
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="flex items-start space-x-3 min-w-0 flex-1">
-                    <span className={style.badgeClass}>
-                      {safeNum}
+              <div key={parent.id} className="bg-white rounded-3xl p-6 shadow-sm border border-gray-200/90 transition-all">
+                {/* Accordion Header */}
+                <div 
+                  onClick={() => togglePolicyExpanded(parent.id)}
+                  className="flex items-center justify-between cursor-pointer select-none group"
+                >
+                  <div className="flex items-center space-x-3.5 min-w-0 flex-1">
+                    <span className="w-9 h-9 rounded-2xl bg-darkblue text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
+                      {parent.number}
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <h3 className={style.titleClass}>
-                        {item.title}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-gray-700 leading-relaxed mt-1.5 whitespace-pre-line">
-                        {item.content}
+                    <h3 className="text-base sm:text-lg font-bold text-darkblue group-hover:text-maroon transition-colors">
+                      {parent.title}
+                    </h3>
+                  </div>
+                  <div className="flex items-center space-x-3 shrink-0">
+                    <span className="text-xs text-gray-400 font-semibold hidden sm:inline">
+                      {isExpanded ? 'Collapse' : 'Expand'} ({children.length} subsections)
+                    </span>
+                    <div className={`p-2 rounded-xl bg-gray-100 group-hover:bg-gray-200 text-gray-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Accordion Body (Parent Text + Image + Subsections) */}
+                {isExpanded && (
+                  <div className="mt-5 pt-5 border-t border-gray-200/80 animate-in fade-in duration-200 space-y-5">
+                    {/* Parent Content & Image */}
+                    <div>
+                      <p className="text-xs sm:text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+                        {parent.content}
                       </p>
 
-                      {/* CLAUSE PICTURE (IF PRESENT) */}
-                      {item.imageUrl && (
-                        <div className={`mt-3.5 flex flex-col ${getImageAlignmentClass(item.imageAlignment)}`}>
-                          <div className={`relative group/img rounded-2xl overflow-hidden border border-gray-200/90 bg-gray-50 shadow-xs hover:shadow-md transition-all ${getImageSizeClass(item.imageSize)}`}>
+                      {parent.imageUrl && (
+                        <div className={`mt-3.5 flex flex-col ${getImageAlignmentClass(parent.imageAlignment)}`}>
+                          <div className={`relative group/img rounded-2xl overflow-hidden border border-gray-200/90 bg-gray-50 shadow-xs hover:shadow-md transition-all ${getImageSizeClass(parent.imageSize)}`}>
                             <img
-                              src={item.imageUrl}
-                              alt={item.imageCaption || item.title || 'Policy diagram'}
+                              src={parent.imageUrl}
+                              alt={parent.imageCaption || parent.title || 'Policy diagram'}
                               className="w-full h-auto object-cover max-h-[500px] cursor-zoom-in group-hover/img:scale-[1.01] transition-transform duration-200"
-                              onClick={() => setPreviewZoomImage({
-                                url: item.imageUrl!,
-                                caption: item.imageCaption,
-                                title: item.title,
-                                number: item.number
-                              })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewZoomImage({
+                                  url: parent.imageUrl!,
+                                  caption: parent.imageCaption,
+                                  title: parent.title,
+                                  number: parent.number
+                                });
+                              }}
                             />
-                            {/* Zoom overlay badge */}
                             <button
-                              onClick={() => setPreviewZoomImage({
-                                url: item.imageUrl!,
-                                caption: item.imageCaption,
-                                title: item.title,
-                                number: item.number
-                              })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewZoomImage({
+                                  url: parent.imageUrl!,
+                                  caption: parent.imageCaption,
+                                  title: parent.title,
+                                  number: parent.number
+                                });
+                              }}
                               className="absolute bottom-2.5 right-2.5 px-2 py-1 bg-black/60 hover:bg-black/80 text-white rounded-lg opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100 transition-opacity backdrop-blur-xs flex items-center space-x-1 text-[11px] font-bold shadow-xs"
                               title="Click to zoom picture"
                             >
@@ -571,18 +665,14 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
                               <span>Zoom</span>
                             </button>
                           </div>
-
-                          {/* Image Caption */}
-                          {item.imageCaption && (
+                          {parent.imageCaption && (
                             <p className="text-[11px] text-gray-500 font-medium italic mt-1.5 flex items-center space-x-1">
                               <ImageIcon className="w-3 h-3 text-gray-400 shrink-0" />
-                              <span>{item.imageCaption}</span>
+                              <span>{parent.imageCaption}</span>
                             </p>
                           )}
-
-                          {/* Quick Secretary Size Switcher */}
                           {isSecretary && (
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-gray-500 bg-gray-100/80 px-2.5 py-1 rounded-xl w-fit border border-gray-200/70">
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-gray-500 bg-gray-100/80 px-2.5 py-1 rounded-xl w-fit border border-gray-200/70" onClick={(e) => e.stopPropagation()}>
                               <span className="text-gray-400 flex items-center space-x-1">
                                 <Sliders className="w-3 h-3 text-gray-400" />
                                 <span>Size:</span>
@@ -590,9 +680,12 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
                               {(['small', 'medium', 'large', 'full'] as PolicyImageSize[]).map((sz) => (
                                 <button
                                   key={sz}
-                                  onClick={() => handleQuickChangeImageSize(item, sz)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleQuickChangeImageSize(parent, sz);
+                                  }}
                                   className={`px-2 py-0.5 rounded-lg uppercase font-mono transition-all text-[10px] ${
-                                    (item.imageSize || 'medium') === sz
+                                    (parent.imageSize || 'medium') === sz
                                       ? 'bg-maroon text-white font-bold shadow-2xs'
                                       : 'bg-white hover:bg-gray-200 text-gray-700 border border-gray-200'
                                   }`}
@@ -605,40 +698,115 @@ export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
                           )}
                         </div>
                       )}
-
                     </div>
+
+                    {/* Subsections List */}
+                    {children.length > 0 && (
+                      <div className="space-y-3 pl-2 sm:pl-5 border-l-2 border-gray-200/80 mt-4 pt-2">
+                        <h4 className="text-[11px] font-black uppercase text-gray-400 tracking-wider mb-3">
+                          Sub-clauses ({children.length})
+                        </h4>
+                        {children.map(child => {
+                          const childNum = child.number || '';
+                          return (
+                            <div key={child.id} className="bg-gray-50/90 rounded-2xl p-4 border border-gray-200/80 hover:border-gray-300 transition-all">
+                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                <div className="flex items-start space-x-3 min-w-0 flex-1">
+                                  <span className="px-2.5 py-1 rounded-xl bg-sky-100 text-darkblue font-mono font-bold text-xs shrink-0 shadow-2xs">
+                                    {childNum}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <h5 className="text-xs sm:text-sm font-bold text-gray-900">
+                                      {child.title}
+                                    </h5>
+                                    <p className="text-xs text-gray-700 leading-relaxed mt-1 whitespace-pre-line">
+                                      {child.content}
+                                    </p>
+
+                                    {child.imageUrl && (
+                                      <div className={`mt-3 flex flex-col ${getImageAlignmentClass(child.imageAlignment)}`}>
+                                        <div className={`relative group/img rounded-xl overflow-hidden border border-gray-200 bg-white shadow-2xs ${getImageSizeClass(child.imageSize)}`}>
+                                          <img
+                                            src={child.imageUrl}
+                                            alt={child.imageCaption || child.title || 'Subsection diagram'}
+                                            className="w-full h-auto object-cover max-h-[400px] cursor-zoom-in"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setPreviewZoomImage({
+                                                url: child.imageUrl!,
+                                                caption: child.imageCaption,
+                                                title: child.title,
+                                                number: child.number
+                                              });
+                                            }}
+                                          />
+                                        </div>
+                                        {child.imageCaption && (
+                                          <p className="text-[10px] text-gray-500 font-medium italic mt-1">
+                                            {child.imageCaption}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Secretary Actions for Subsection */}
+                                {isSecretary && (
+                                  <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-start" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      onClick={(e) => handleOpenEditModal(child, e)}
+                                      className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-[11px] font-bold flex items-center space-x-1"
+                                      title="Edit subsection"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Edit</span>
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleOpenDeleteModal(child, e)}
+                                      className="px-2 py-1 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-lg text-[11px] font-bold flex items-center space-x-1"
+                                      title="Delete subsection"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Secretary Actions for Parent Section */}
+                    {isSecretary && (
+                      <div className="pt-4 border-t border-gray-200/80 flex items-center justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleOpenCreateModal(parent.number)}
+                          className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold flex items-center space-x-1"
+                        >
+                          <CornerDownRight className="w-3 h-3" />
+                          <span>Add Sub-clause</span>
+                        </button>
+                        <button
+                          onClick={(e) => handleOpenEditModal(parent, e)}
+                          className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-bold flex items-center space-x-1"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit Section</span>
+                        </button>
+                        <button
+                          onClick={(e) => handleOpenDeleteModal(parent, e)}
+                          className="px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-xl text-xs font-bold flex items-center space-x-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Delete Section</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-
-                  {/* Secretary Actions */}
-                  {isSecretary && (
-                    <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-start pt-2 sm:pt-0">
-                      <button
-                        onClick={() => handleOpenCreateModal(safeNum)}
-                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold flex items-center space-x-1"
-                        title={`Add sub-clause under ${safeNum}`}
-                      >
-                        <CornerDownRight className="w-3 h-3" />
-                        <span>Sub-clause</span>
-                      </button>
-                      <button
-                        onClick={(e) => handleOpenEditModal(item, e)}
-                        className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold flex items-center space-x-1"
-                        title="Edit policy & picture"
-                      >
-                        <Edit3 className="w-3 h-3" />
-                        <span>Edit</span>
-                      </button>
-                      <button
-                        onClick={(e) => handleOpenDeleteModal(item, e)}
-                        className="px-2.5 py-1 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-bold flex items-center space-x-1"
-                        title="Delete policy"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Delete</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             );
           })
