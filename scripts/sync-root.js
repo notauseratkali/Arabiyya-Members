@@ -61,11 +61,12 @@ async function syncRootAndRoutes() {
 
   const compiledHtml = fs.readFileSync(distIndex, 'utf-8');
 
-  // 1. Sync dist/404.html
+  // Only write to dist/ for static deployment exports
+  safeWriteFile(path.join(distDir, 'index.html'), compiledHtml);
   safeWriteFile(path.join(distDir, '404.html'), compiledHtml);
   console.log('[Sync Root] Created dist/404.html with compiled bundle');
 
-  // 2. Sync root assets and root files
+  // 2. Sync root assets
   const distAssets = path.join(distDir, 'assets');
   const rootAssets = path.join(rootDir, 'assets');
 
@@ -77,19 +78,10 @@ async function syncRootAndRoutes() {
     console.log('[Sync Root] Copied dist/assets to ./assets');
   }
 
-  safeWriteFile(path.join(rootDir, 'index.html'), compiledHtml);
-  safeWriteFile(path.join(rootDir, '404.html'), compiledHtml);
-  console.log('[Sync Root] Updated root ./index.html and ./404.html with compiled production bundle');
-
-  // 3. Create static HTML routes in both dist/ and root for direct path matching on static hosts
+  // 3. Create static HTML routes in dist/ for static hosts
   for (const route of routes) {
-    // Single HTML file: e.g. dist/signin.html and ./signin.html
     safeWriteFile(path.join(distDir, `${route}.html`), compiledHtml);
-    safeWriteFile(path.join(rootDir, `${route}.html`), compiledHtml);
-
-    // Directory index file: e.g. dist/signin/index.html and ./signin/index.html
     safeWriteFile(path.join(distDir, route, 'index.html'), compiledHtml);
-    safeWriteFile(path.join(rootDir, route, 'index.html'), compiledHtml);
   }
 
   console.log(`[Sync Root] Successfully generated static pages for ${routes.length} routes.`);
