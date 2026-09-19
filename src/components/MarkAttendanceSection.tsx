@@ -98,7 +98,7 @@ export const MarkAttendanceSection: React.FC<MarkAttendanceSectionProps> = () =>
 
     members.forEach(mem => {
       const record = eventAttRecords.find(a => a.memberId === mem.id);
-      if (record && record.status) {
+      if (record && record.status && record.status !== 'Pending' && record.status !== 'Absent' && record.status !== 'Upcoming') {
         initialMap[mem.id] = record.status;
       } else if (currentEvt) {
         const evaluation = evaluateEventRequirementForMember(currentEvt, mem);

@@ -337,14 +337,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
           const updateJson = await updateRes.json();
           const updatedMember = updateJson.member || { ...user, ...updates };
           setProfileData(updatedMember);
-          updateUser(updatedMember);
+          updateUser(updatedMember as AuthUser);
           setShowUpdateModal(false);
           setUpdateSuccessMsg('All profile details updated successfully! Changes are live and synchronized across your account, records, and the Member Directory.');
         } else {
           // Still apply locally if server error
           const fallback = { ...user, ...updates };
           setProfileData(fallback);
-          updateUser(fallback);
+          updateUser(fallback as AuthUser);
           setShowUpdateModal(false);
           setUpdateSuccessMsg('Profile details saved and synchronized with your local session!');
         }
@@ -1168,7 +1168,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                   <input
                     type="text"
                     value={editRole}
-                    onChange={(e) => setEditRole(e.target.value)}
+                    onChange={(e) => setEditRole(e.target.value as RoleSection)}
                     className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl"
                     placeholder="e.g. Secretary"
                   />

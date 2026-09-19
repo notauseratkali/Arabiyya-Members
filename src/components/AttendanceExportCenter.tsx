@@ -351,7 +351,7 @@ export const AttendanceExportCenter: React.FC<AttendanceExportCenterProps> = ({
                 const rec = records.find(r => r.eventId === evt.id && (r.memberId === currentMember.id || r.memberName === currentMember.fullName));
                 const isPast = evt.toDateTime ? new Date(evt.toDateTime).getTime() < Date.now() : false;
                 const isSusp = isMemberVoluntarilySuspended(currentMember);
-                let st = rec?.status;
+                let st: string | undefined = rec?.status;
                 if (!st) {
                   if (isSusp) st = 'Excused';
                   else if (isPast) st = 'Absent';

@@ -35,7 +35,7 @@ try {
       return originalFetch(new URL(url), init);
     } else {
       // If it's a Request object, clone and rewrite the URL
-      const newRequest = new Request(url, input as RequestInfo);
+      const newRequest = new Request(url, input as Request);
       return originalFetch(newRequest, init);
     }
   };

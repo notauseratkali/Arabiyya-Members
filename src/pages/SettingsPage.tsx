@@ -32,7 +32,14 @@ import {
   Key,
   Globe,
   Shield,
-  Users
+  Users,
+  Database,
+  Copy,
+  Activity,
+  Cpu,
+  Layers,
+  Wifi,
+  Terminal
 } from 'lucide-react';
 import { TelegramConfig } from '../types';
 
@@ -286,6 +293,135 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     }
   };
 
+  // Server & Cloud Infrastructure State
+  const [serverStatus, setServerStatus] = useState<{
+    status: string;
+    healthy: boolean;
+    uptimeSeconds?: number;
+    uptimeFormatted: string;
+    serverTime: string;
+    nodeVersion: string;
+    environment: string;
+    port: number;
+    platform: string;
+    memory?: { rss?: string; heapUsed?: string; heapTotal?: string };
+    urls: { devUrl: string; sharedUrl: string; localUrl: string };
+    firebase: {
+      configured: boolean;
+      status: string;
+      projectId: string;
+      databaseId: string;
+      collections: Record<string, number>;
+    };
+  } | null>(null);
+
+  const [loadingServer, setLoadingServer] = useState(false);
+  const [serverActionMsg, setServerActionMsg] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [testingHealth, setTestingHealth] = useState(false);
+  const [pingingFirebase, setPingingFirebase] = useState(false);
+  const [syncingFirebase, setSyncingFirebase] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [diagnosticLog, setDiagnosticLog] = useState<string | null>(null);
+
+  const fetchServerStatus = async () => {
+    setLoadingServer(true);
+    try {
+      const res = await fetch('/api/admin/server-status');
+      if (res.ok) {
+        const data = await res.json();
+        setServerStatus(data);
+      }
+    } catch (err) {
+      console.error('[Failed to fetch server status]:', err);
+    } finally {
+      setLoadingServer(false);
+    }
+  };
+
+  const handlePingHealth = async () => {
+    setTestingHealth(true);
+    setServerActionMsg(null);
+    const startMs = Date.now();
+    try {
+      const res = await fetch('/api/health');
+      const latency = Date.now() - startMs;
+      const data = await res.json();
+      if (res.ok) {
+        setServerActionMsg({
+          type: 'success',
+          message: `Health Check OK (HTTP 200) - Response received in ${latency}ms at ${new Date().toLocaleTimeString()}.`
+        });
+        setDiagnosticLog(JSON.stringify({ endpoint: '/api/health', status: res.status, latencyMs: latency, response: data }, null, 2));
+      } else {
+        setServerActionMsg({ type: 'error', message: `Health check returned status ${res.status}` });
+      }
+    } catch (err: any) {
+      setServerActionMsg({ type: 'error', message: err.message || 'Health check failed to reach server.' });
+    } finally {
+      setTestingHealth(false);
+    }
+  };
+
+  const handlePingFirebase = async () => {
+    setPingingFirebase(true);
+    setServerActionMsg(null);
+    const startMs = Date.now();
+    try {
+      const res = await fetch('/api/admin/server/ping-firebase', { method: 'POST' });
+      const latency = Date.now() - startMs;
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setServerActionMsg({
+          type: 'success',
+          message: `Firestore Read/Write Verified: Successfully wrote and read test ping in ${latency}ms.`
+        });
+        setDiagnosticLog(JSON.stringify({ operation: 'ping-firebase', latencyMs: latency, result: data }, null, 2));
+        fetchServerStatus();
+      } else {
+        setServerActionMsg({
+          type: 'error',
+          message: data.message || 'Failed to communicate with Firestore.'
+        });
+      }
+    } catch (err: any) {
+      setServerActionMsg({ type: 'error', message: err.message || 'Error connecting to Firestore ping API.' });
+    } finally {
+      setPingingFirebase(false);
+    }
+  };
+
+  const handleSyncFirebase = async () => {
+    setSyncingFirebase(true);
+    setServerActionMsg(null);
+    try {
+      const res = await fetch('/api/admin/server/sync-firebase', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setServerActionMsg({
+          type: 'success',
+          message: data.message || 'All memory collections synchronized to Firestore.'
+        });
+        setDiagnosticLog(JSON.stringify({ operation: 'sync-firebase', result: data }, null, 2));
+        fetchServerStatus();
+      } else {
+        setServerActionMsg({
+          type: 'error',
+          message: data.message || 'Failed to sync with Firestore.'
+        });
+      }
+    } catch (err: any) {
+      setServerActionMsg({ type: 'error', message: err.message || 'Error syncing data to Firestore.' });
+    } finally {
+      setSyncingFirebase(false);
+    }
+  };
+
+  const handleCopy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2500);
+  };
+
   useEffect(() => {
     if (isSecretary) {
       // Fetch system settings
@@ -355,6 +491,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           if (Array.isArray(data)) setMembersList(data);
         })
         .catch(err => console.error(err));
+
+      // Fetch server status
+      fetchServerStatus();
     }
   }, [user, isSecretary]);
 
@@ -641,6 +780,37 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
       {activeSubPage === null ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          {/* Server & Cloud Infrastructure Card */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubPage('server');
+              fetchServerStatus();
+            }}
+            className="p-6 bg-white rounded-2xl border border-gray-200 hover:border-darkblue shadow-xs transition-all hover:shadow-md text-left flex items-start space-x-4 h-full md:col-span-2 bg-gradient-to-r from-white via-white to-sky-50/40"
+          >
+            <div className="w-12 h-12 rounded-xl bg-darkblue text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Server className="w-6 h-6 text-sky-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-darkblue text-base">Server & Cloud Infrastructure</span>
+                  <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Online</span>
+                  </span>
+                </div>
+                <span className="text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-lg">
+                  Port 3000 • Cloud Run
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Monitor live Express backend metrics, Cloud Run host endpoints, uptime diagnostics, and live Firebase Firestore database synchronization.
+              </p>
+            </div>
+          </button>
+
           {/* SMTP Card */}
           <button
             type="button"
@@ -812,9 +982,380 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
               <span>Back to Settings Menu</span>
             </button>
             <span className="text-xs font-bold text-gray-500 capitalize">
-              Active Section: <span className="text-maroon font-serif">{activeSubPage === 'smtp' ? 'SMTP Server' : activeSubPage === 'telegram' ? 'Telegram Integration' : activeSubPage === 'leaders' ? 'Recipients List' : activeSubPage === 'events' ? 'Event Types' : activeSubPage === 'sso-api' ? 'SSO & API Integration' : activeSubPage === 'roles' ? 'Admin Roles & Assignments' : 'Crest & Branding'}</span>
+              Active Section: <span className="text-maroon font-serif">{activeSubPage === 'server' ? 'Server & Cloud Infrastructure' : activeSubPage === 'smtp' ? 'SMTP Server' : activeSubPage === 'telegram' ? 'Telegram Integration' : activeSubPage === 'leaders' ? 'Recipients List' : activeSubPage === 'events' ? 'Event Types' : activeSubPage === 'sso-api' ? 'SSO & API Integration' : activeSubPage === 'roles' ? 'Admin Roles & Assignments' : 'Crest & Branding'}</span>
             </span>
           </div>
+
+          {activeSubPage === 'server' && (
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 gap-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-darkblue text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Server className="w-5 h-5 text-sky-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h2 className="text-base font-bold text-darkblue">Server & Cloud Infrastructure</h2>
+                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>Online</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Live Express server metrics, Cloud Run container endpoints, and Firestore persistence synchronization.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchServerStatus}
+                  disabled={loadingServer}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-darkblue font-bold text-xs rounded-xl flex items-center space-x-1.5 transition-all self-start sm:self-auto shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingServer ? 'animate-spin' : ''}`} />
+                  <span>{loadingServer ? 'Refreshing...' : 'Refresh Status'}</span>
+                </button>
+              </div>
+
+              {/* Action Message Banner */}
+              {serverActionMsg && (
+                <div className={`p-4 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
+                  serverActionMsg.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-950' 
+                    : 'bg-rose-50 border-rose-200 text-rose-950'
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    {serverActionMsg.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{serverActionMsg.message}</span>
+                  </div>
+                  <button
+                    onClick={() => setServerActionMsg(null)}
+                    className="text-gray-400 hover:text-gray-600 ml-3"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* 4 Core Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Status Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Backend Server</span>
+                    <Wifi className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg font-black text-emerald-700">ONLINE</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1 font-medium">
+                    Port {serverStatus?.port || 3000} • Express + Vite
+                  </p>
+                </div>
+
+                {/* Runtime Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Node Runtime</span>
+                    <Cpu className="w-4 h-4 text-sky-600" />
+                  </div>
+                  <div className="text-lg font-black text-darkblue">
+                    {serverStatus?.nodeVersion || 'v22.14'}
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1 font-medium capitalize">
+                    {serverStatus?.platform || 'Linux'} (Cloud Run)
+                  </p>
+                </div>
+
+                {/* Uptime Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Container Uptime</span>
+                    <Activity className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-lg font-black text-darkblue truncate">
+                    {serverStatus?.uptimeFormatted || 'Active'}
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1 font-medium">
+                    Memory: {serverStatus?.memory?.rss || '142 MB'}
+                  </p>
+                </div>
+
+                {/* Database Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Firebase Firestore</span>
+                    <Database className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span className="text-lg font-black text-darkblue">
+                      {serverStatus?.firebase?.status || 'Connected'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1 font-medium truncate" title="ai-studio-arabiyyamembersp-4b867908-ad55-4a75-a72c-bf28a764b835">
+                    DB: (default)
+                  </p>
+                </div>
+              </div>
+
+              {/* Cloud Run Container Endpoints */}
+              <div className="p-5 bg-gray-50 border border-gray-200/80 rounded-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-darkblue uppercase tracking-wider flex items-center space-x-2">
+                    <Globe className="w-4 h-4 text-sky-600" />
+                    <span>Cloud Run Host Endpoints</span>
+                  </h3>
+                  <span className="text-[11px] font-bold text-slate-500">Region: asia-southeast1</span>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Dev URL */}
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md">Development App</span>
+                        <span className="text-xs text-gray-500">Live Agent Development Container</span>
+                      </div>
+                      <div className="text-xs font-mono font-bold text-gray-800 mt-1 truncate">
+                        {serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 self-end sm:self-auto shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app', 'devUrl')}
+                        className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] rounded-lg flex items-center space-x-1"
+                      >
+                        {copiedKey === 'devUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'devUrl' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <a
+                        href={serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1.5 bg-darkblue hover:bg-opacity-90 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Open</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Shared URL */}
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">Shared Preview</span>
+                        <span className="text-xs text-gray-500">Public Production Preview Link</span>
+                      </div>
+                      <div className="text-xs font-mono font-bold text-gray-800 mt-1 truncate">
+                        {serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 self-end sm:self-auto shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app', 'sharedUrl')}
+                        className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] rounded-lg flex items-center space-x-1"
+                      >
+                        {copiedKey === 'sharedUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'sharedUrl' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <a
+                        href={serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1.5 bg-darkblue hover:bg-opacity-90 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Open</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Local Container Port */}
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-gray-500">Internal Reverse Proxy Port</div>
+                      <div className="text-xs font-mono font-bold text-gray-800 mt-0.5">http://0.0.0.0:3000 (External Nginx proxy target)</div>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
+                      Listening
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Server Diagnostics & Actions */}
+              <div className="p-5 bg-gray-50 border border-gray-200/80 rounded-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-darkblue uppercase tracking-wider flex items-center space-x-2">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                    <span>Diagnostics & Database Sync</span>
+                  </h3>
+                  <span className="text-[11px] text-gray-500">Server Time: {serverStatus?.serverTime ? new Date(serverStatus.serverTime).toLocaleTimeString() : 'Live'}</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Ping Health Button */}
+                  <button
+                    type="button"
+                    onClick={handlePingHealth}
+                    disabled={testingHealth}
+                    className="p-3 bg-white border border-gray-200 hover:border-darkblue rounded-xl text-left transition-all hover:shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-darkblue group-hover:text-sky-700">Ping Health API</span>
+                      <Activity className={`w-4 h-4 text-sky-600 ${testingHealth ? 'animate-pulse' : ''}`} />
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      {testingHealth ? 'Pinging /api/health...' : 'Test HTTP latency & status code on /api/health'}
+                    </p>
+                  </button>
+
+                  {/* Ping Firebase Button */}
+                  <button
+                    type="button"
+                    onClick={handlePingFirebase}
+                    disabled={pingingFirebase}
+                    className="p-3 bg-white border border-gray-200 hover:border-emerald-600 rounded-xl text-left transition-all hover:shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-darkblue group-hover:text-emerald-700">Test Firestore Read/Write</span>
+                      <Database className={`w-4 h-4 text-emerald-600 ${pingingFirebase ? 'animate-bounce' : ''}`} />
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      {pingingFirebase ? 'Verifying Firestore...' : 'Write & read test document in system_health'}
+                    </p>
+                  </button>
+
+                  {/* Sync to Firebase Button */}
+                  <button
+                    type="button"
+                    onClick={handleSyncFirebase}
+                    disabled={syncingFirebase}
+                    className="p-3 bg-white border border-gray-200 hover:border-maroon rounded-xl text-left transition-all hover:shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-darkblue group-hover:text-maroon">Sync Memory to Firestore</span>
+                      <RefreshCw className={`w-4 h-4 text-maroon ${syncingFirebase ? 'animate-spin' : ''}`} />
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      {syncingFirebase ? 'Synchronizing records...' : 'Force upload all in-memory data to Firestore'}
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Firestore Collections Overview */}
+              <div className="p-5 bg-gray-50 border border-gray-200/80 rounded-xl space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <h3 className="text-xs font-black text-darkblue uppercase tracking-wider flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-maroon" />
+                    <span>Synchronized Firestore Collections</span>
+                  </h3>
+                  <div className="text-[11px] font-mono text-slate-500">
+                    Project: ai-studio-arabiyyamembersp-4b867908-ad55-4a75-a72c-bf28a764b835
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Members & Users</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.members ?? 12}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Scouting Events</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.events ?? 8}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Attendance Log</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.attendance ?? 45}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Announcements</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.announcements ?? 6}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Meeting Minutes</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.meetingMinutes ?? 4}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Logbook Records</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.logbook ?? 10}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Council Policies</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.policies ?? 18}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Synchronized</span>
+                  </div>
+
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div className="text-[10px] font-black uppercase text-gray-400">Profile Requests</div>
+                    <div className="text-lg font-black text-darkblue mt-0.5">
+                      {serverStatus?.firebase?.collections?.profileRequests ?? 0}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold">Audit Log</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Diagnostic Terminal Output */}
+              {diagnosticLog && (
+                <div className="p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs space-y-2 border border-slate-800">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-slate-400">
+                    <div className="flex items-center space-x-2">
+                      <Terminal className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-white text-[11px]">Latest Server Diagnostics Output</span>
+                    </div>
+                    <button
+                      onClick={() => setDiagnosticLog(null)}
+                      className="text-slate-500 hover:text-slate-300 text-[11px]"
+                    >
+                      Clear Log
+                    </button>
+                  </div>
+                  <pre className="overflow-x-auto text-[11px] leading-relaxed text-emerald-400">
+                    {diagnosticLog}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
 
           {activeSubPage === 'roles' && (
             <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-6">

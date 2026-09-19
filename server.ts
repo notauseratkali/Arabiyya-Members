@@ -3886,6 +3886,125 @@ app.post('/api/admin/telegram/test', async (req, res) => {
   return res.json(result);
 });
 
+// Server & Firebase Status & Management endpoints
+app.get('/api/admin/server-status', (req, res) => {
+  const uptimeSeconds = Math.floor(process.uptime());
+  const hours = Math.floor(uptimeSeconds / 3600);
+  const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+  const seconds = uptimeSeconds % 60;
+  const formattedUptime = `${hours}h ${minutes}m ${seconds}s`;
+
+  let memMb: any = {};
+  try {
+    const mem = process.memoryUsage();
+    memMb = {
+      rss: Math.round(mem.rss / 1024 / 1024) + ' MB',
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + ' MB',
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + ' MB'
+    };
+  } catch {
+    // ignore
+  }
+
+  return res.json({
+    status: 'online',
+    healthy: true,
+    uptimeSeconds,
+    uptimeFormatted: formattedUptime,
+    serverTime: new Date().toISOString(),
+    nodeVersion: process.version,
+    environment: process.env.NODE_ENV || 'production',
+    port: 3000,
+    platform: process.platform,
+    memory: memMb,
+    urls: {
+      devUrl: 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app',
+      sharedUrl: 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app',
+      localUrl: 'http://localhost:3000'
+    },
+    firebase: {
+      configured: Boolean(db),
+      status: db ? 'Connected' : 'In-Memory Fallback',
+      projectId: 'ai-studio-arabiyyamembersp-4b867908-ad55-4a75-a72c-bf28a764b835',
+      databaseId: '(default)',
+      collections: {
+        members: memberApplications.length,
+        events: eventsStore.length,
+        attendance: attendanceStore.length,
+        announcements: announcementsStore.length,
+        presets: announcementPresetsStore.length,
+        meetingMinutes: meetingMinutesStore.length,
+        logbook: logbookStore.length,
+        policies: policiesStore.length,
+        profileRequests: profileUpdateRequests.length
+      }
+    }
+  });
+});
+
+app.post('/api/admin/server/ping-firebase', async (req, res) => {
+  if (!db) {
+    return res.status(503).json({ success: false, message: 'Firestore is not initialized on the server.' });
+  }
+  try {
+    const pingRef = doc(db, 'settings', 'server_ping');
+    const nowIso = new Date().toISOString();
+    await setDoc(pingRef, { lastPing: nowIso, status: 'healthy', source: 'server' }, { merge: true });
+    const snap = await getDoc(pingRef);
+    return res.json({
+      success: true,
+      message: 'Successfully connected and verified read/write capability to Firestore database.',
+      pingTime: nowIso,
+      data: snap.data()
+    });
+  } catch (err: any) {
+    console.error('[Firestore Ping Error]:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to communicate with Firestore.' });
+  }
+});
+
+app.post('/api/admin/server/sync-firebase', async (req, res) => {
+  if (!db) {
+    return res.status(503).json({ success: false, message: 'Firestore is not initialized on the server.' });
+  }
+  try {
+    let syncedCount = 0;
+    for (const m of memberApplications) {
+      await persistMember(m);
+      syncedCount++;
+    }
+    for (const evt of eventsStore) {
+      await persistEvent(evt);
+      syncedCount++;
+    }
+    for (const att of attendanceStore) {
+      await persistAttendance(att);
+      syncedCount++;
+    }
+    for (const ann of announcementsStore) {
+      await persistAnnouncement(ann);
+      syncedCount++;
+    }
+    for (const minItem of meetingMinutesStore) {
+      await persistMeetingMinute(minItem);
+      syncedCount++;
+    }
+    for (const entry of logbookStore) {
+      await persistLogBookEntry(entry);
+      syncedCount++;
+    }
+    await persistSettings();
+    return res.json({
+      success: true,
+      message: `Successfully synchronized ${syncedCount} records and system configurations directly to Firestore!`,
+      syncedCount
+    });
+  } catch (err: any) {
+    console.error('[Sync Firebase Error]:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to synchronize with Firestore.' });
+  }
+});
+
 // Start Server with Vite Middleware for SPA Routing
 async function start() {
   const isProduction = process.env.NODE_ENV === 'production';

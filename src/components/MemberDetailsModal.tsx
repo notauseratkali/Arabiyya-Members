@@ -25,6 +25,7 @@ interface MemberDetailsModalProps {
   member: Member;
   onClose: () => void;
   isSecretary?: boolean;
+  onDeleteMember?: (memberToDelete: Member) => void;
   calculateTimeRemainingForAward?: (
     dob?: string,
     role?: string,
@@ -41,6 +42,7 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
   member,
   onClose,
   isSecretary = false,
+  onDeleteMember,
   calculateTimeRemainingForAward,
   onStatusUpdate,
   onStatusUpdated,
@@ -165,8 +167,8 @@ export const MemberDetailsModal: React.FC<MemberDetailsModalProps> = ({
       setResignationDate(member.resignationDate || '');
       setTerm(member.term || '');
       setStatus(member.status || 'Active');
-      setOverallAttendanceWithoutExcused(member.overallAttendanceWithoutExcused || '0%');
-      setOverallAttendanceWithExcused(member.overallAttendanceWithExcused || '0%');
+      setOverallAttendanceWithoutExcused(String(member.overallAttendanceWithoutExcused || '0%'));
+      setOverallAttendanceWithExcused(String(member.overallAttendanceWithExcused || '0%'));
       setIsEditing(false);
       setErrorMsg(null);
       setSaveSuccess(false);

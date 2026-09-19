@@ -654,7 +654,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDispatchNotification(evt)}
+                          onClick={() => handleDispatchNotification(evt.id)}
                           title="Dispatch Notification Announcement"
                           className="p-1.5 text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
                         >

@@ -207,7 +207,9 @@ export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
       const whatsappMatch = m.whatsappNumber?.toLowerCase().includes(q);
       const termMatch = m.term?.toLowerCase().includes(q);
       const statusMatch = m.status?.toLowerCase().includes(q);
-      const cityMatch = m.currentAddress?.city?.toLowerCase().includes(q) || m.permanentAddress?.city?.toLowerCase().includes(q);
+      const currentCity = typeof m.currentAddress === 'object' && m.currentAddress !== null ? m.currentAddress.city : (typeof m.currentAddress === 'string' ? m.currentAddress : '');
+      const permCity = typeof m.permanentAddress === 'object' && m.permanentAddress !== null ? m.permanentAddress.city : (typeof m.permanentAddress === 'string' ? m.permanentAddress : '');
+      const cityMatch = (currentCity && currentCity.toLowerCase().includes(q)) || (permCity && permCity.toLowerCase().includes(q));
 
       return nameMatch || idMatch || emailMatch || phoneMatch || whatsappMatch || termMatch || statusMatch || cityMatch;
     }

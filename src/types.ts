@@ -150,7 +150,7 @@ export interface AttendanceRecord {
   memberId: string;
   memberName: string;
   memberCommonName: string;
-  status: 'Attended' | 'Excused' | 'Unable To Attend' | 'Pending' | 'Not Required';
+  status: 'Attended' | 'Excused' | 'Unable To Attend' | 'Pending' | 'Not Required' | 'Absent' | 'Upcoming';
   excuseReason?: string;
   excuseStatus?: 'Pending Review' | 'Approved' | 'Rejected';
   updatedAt: string;
@@ -212,6 +212,7 @@ export interface AnnouncementItem {
   actionText?: string;
   dispatchedAt: string;
   dispatchedBy: string;
+  createdAt?: string;
   emailCount?: number;
   telegramDelivered?: boolean;
   telegramError?: string;
@@ -230,6 +231,7 @@ export interface SystemSettings {
 
 export interface AuthUser {
   id: string;
+  memberId?: string;
   username: string;
   fullName: string;
   commonName: string;
@@ -241,6 +243,12 @@ export interface AuthUser {
   mobileNumber?: string;
   telegramNumber?: string;
   whatsappNumber?: string;
+  emergencyContact?: any;
+  emergencyName?: string;
+  emergencyRelationship?: string;
+  emergencyNumber?: string;
+  suspensionReason?: string;
+  suspensionEndDate?: string;
   term?: string;
   resignationDate?: string;
   overallAttendanceWithoutExcused?: string | number;
