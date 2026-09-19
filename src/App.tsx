@@ -30,7 +30,38 @@ import { FinancePage } from './pages/FinancePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { safeStorage } from './utils/safeStorage';
 
+function getRepoBase(): string {
+  const hostname = window.location.hostname;
+  if (hostname.endsWith('github.io')) {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (parts.length > 0) {
+      return '/' + parts[0];
+    }
+  }
+  return '';
+}
+
 function getPath(): string {
+  // 1. Check hash routing (#/dashboard or #dashboard)
+  if (window.location.hash) {
+    const hash = window.location.hash.replace(/^#\/?/, '/');
+    if (hash && hash !== '/') {
+      const cleanHash = hash.replace(/\/+$/, '') || '/';
+      if (cleanHash === '/login') return '/signin';
+      return cleanHash;
+    }
+  }
+
+  // 2. Check query parameter from 404.html redirect (?p=/dashboard or ?path=/dashboard)
+  const searchParams = new URLSearchParams(window.location.search);
+  const paramRoute = searchParams.get('p') || searchParams.get('path');
+  if (paramRoute) {
+    const decoded = decodeURIComponent(paramRoute);
+    const cleanRoute = (decoded.startsWith('/') ? decoded : `/${decoded}`).replace(/\/+$/, '') || '/';
+    if (cleanRoute === '/login') return '/signin';
+    return cleanRoute;
+  }
+
   let path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (path.endsWith('/index.html')) {
     path = path.replace(/\/index\.html$/, '') || '/';
@@ -38,6 +69,13 @@ function getPath(): string {
   if (path.endsWith('.html')) {
     path = path.replace(/\.html$/, '');
   }
+
+  // Strip repo base if hosted on github.io subpath
+  const repoBase = getRepoBase();
+  if (repoBase && path.startsWith(repoBase)) {
+    path = path.substring(repoBase.length) || '/';
+  }
+
   if (path === '/login') return '/signin';
 
   const knownRoutes = [
@@ -48,15 +86,17 @@ function getPath(): string {
     '/admin/requests', '/admin/settings', '/admin/syllabus'
   ];
 
-  if (!knownRoutes.includes(path) && path !== '/') {
-    for (const r of knownRoutes) {
-      if (path.endsWith(r)) {
-        return r;
-      }
+  if (knownRoutes.includes(path)) {
+    return path;
+  }
+
+  for (const r of knownRoutes) {
+    if (path.endsWith(r)) {
+      return r;
     }
   }
 
-  return path;
+  return '/';
 }
 
 function AppContent() {
@@ -104,7 +144,14 @@ function AppContent() {
       targetPath = '/signin';
     }
 
-    window.history.pushState({}, '', targetPath);
+    const repoBase = getRepoBase();
+    const fullPath = repoBase ? `${repoBase}${targetPath}` : targetPath;
+
+    try {
+      window.history.pushState({}, '', fullPath);
+    } catch {
+      window.location.hash = targetPath;
+    }
     setCurrentPath(targetPath);
     window.scrollTo(0, 0);
   };
@@ -128,15 +175,26 @@ function AppContent() {
     if (isLoading) return;
 
     const publicRoutes = ['/signin', '/join', '/signup', '/forgot-password', '/track', '/policy'];
+    const repoBase = getRepoBase();
 
     if (!user) {
       if (!publicRoutes.includes(currentPath) || currentPath === '/login' || currentPath === '/') {
-        window.history.replaceState({}, '', '/signin');
+        const fullPath = repoBase ? `${repoBase}/signin` : '/signin';
+        try {
+          window.history.replaceState({}, '', fullPath);
+        } catch {
+          window.location.hash = '/signin';
+        }
         setCurrentPath('/signin');
       }
     } else {
       if (currentPath === '/login' || currentPath === '/' || currentPath === '/signin') {
-        window.history.replaceState({}, '', '/dashboard');
+        const fullPath = repoBase ? `${repoBase}/dashboard` : '/dashboard';
+        try {
+          window.history.replaceState({}, '', fullPath);
+        } catch {
+          window.location.hash = '/dashboard';
+        }
         setCurrentPath('/dashboard');
       }
     }

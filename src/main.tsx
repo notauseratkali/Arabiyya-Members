@@ -19,10 +19,10 @@ try {
 
     // If the request is a relative API endpoint
     if (url.startsWith('/api/') || (url.startsWith(window.location.origin) && url.includes('/api/'))) {
-      const isGitHubPages = window.location.hostname.endsWith('github.io');
-      const isLocalStaticClient = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port !== '3000';
+      const isBackendHost = window.location.hostname.endsWith('run.app') || 
+        ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port === '3000');
       
-      if (isGitHubPages || isLocalStaticClient) {
+      if (!isBackendHost) {
         const backendBaseUrl = 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
         const cleanPath = url.startsWith('/api/') ? url : url.substring(window.location.origin.length);
         url = `${backendBaseUrl}${cleanPath}`;
@@ -34,9 +34,7 @@ try {
     } else if (input instanceof URL) {
       return originalFetch(new URL(url), init);
     } else {
-      // If it's a Request object, clone and rewrite the URL
-      const newRequest = new Request(url, input as Request);
-      return originalFetch(newRequest, init);
+      return originalFetch(url, init || (input as unknown as RequestInit));
     }
   };
 
