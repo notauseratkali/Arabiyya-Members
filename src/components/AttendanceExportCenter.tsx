@@ -82,12 +82,14 @@ export const AttendanceExportCenter: React.FC<AttendanceExportCenterProps> = ({
   const filteredMembers = members.filter(m => {
     if (!memberSearchTerm) return true;
     const term = memberSearchTerm.toLowerCase();
+    const permAddr = typeof m.permanentAddress === 'object' && m.permanentAddress ? `${m.permanentAddress.city || ''} ${m.permanentAddress.district || ''} ${m.permanentAddress.addressLine || ''}` : String(m.permanentAddress || '');
+    const currAddr = typeof m.currentAddress === 'object' && m.currentAddress ? `${m.currentAddress.city || ''} ${m.currentAddress.district || ''} ${m.currentAddress.addressLine || ''}` : String(m.currentAddress || '');
     return (
       (m.fullName && m.fullName.toLowerCase().includes(term)) ||
       (m.commonName && m.commonName.toLowerCase().includes(term)) ||
       (m.role && m.role.toLowerCase().includes(term)) ||
-      (m.permanentCity && m.permanentCity.toLowerCase().includes(term)) ||
-      (m.temporaryCity && m.temporaryCity.toLowerCase().includes(term))
+      permAddr.toLowerCase().includes(term) ||
+      currAddr.toLowerCase().includes(term)
     );
   });
 

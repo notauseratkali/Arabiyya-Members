@@ -35,6 +35,7 @@ import {
 import { INITIAL_ROVER_POLICY, sortPolicyItems, PolicyItem } from './src/data/policyData';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, setLogLevel, serverTimestamp } from 'firebase/firestore';
+import { initFirebaseAdmin, getFirebaseAdminStatus, adminDb, adminAuth } from './server/firebaseAdmin';
 import fs from 'fs';
 
 // Process resilience guards for Cloud Run container lifecycle
@@ -315,10 +316,14 @@ let profileUpdateRequests: any[] = [];
 
 // Initialize Firestore from configuration file
 let db: any = null;
+let configuredFirebaseProjectId = 'arabiyyaidentity';
 try {
   const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
   if (fs.existsSync(configPath)) {
     const firebaseConfigData = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (firebaseConfigData.projectId) {
+      configuredFirebaseProjectId = firebaseConfigData.projectId;
+    }
     const firebaseConfig = {
       apiKey: firebaseConfigData.apiKey,
       authDomain: firebaseConfigData.authDomain,
@@ -3923,9 +3928,9 @@ app.get('/api/admin/server-status', (req, res) => {
       localUrl: 'http://localhost:3000'
     },
     firebase: {
-      configured: Boolean(db),
-      status: db ? 'Connected' : 'In-Memory Fallback',
-      projectId: 'ai-studio-arabiyyamembersp-4b867908-ad55-4a75-a72c-bf28a764b835',
+      configured: Boolean(db || adminDb),
+      status: adminDb ? 'Connected (Admin SDK)' : (db ? 'Connected (Client SDK)' : 'In-Memory Fallback'),
+      projectId: configuredFirebaseProjectId,
       databaseId: '(default)',
       collections: {
         members: memberApplications.length,
@@ -3938,7 +3943,8 @@ app.get('/api/admin/server-status', (req, res) => {
         policies: policiesStore.length,
         profileRequests: profileUpdateRequests.length
       }
-    }
+    },
+    firebaseAdmin: getFirebaseAdminStatus()
   });
 });
 

@@ -70,7 +70,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
     id: string;
     fullName: string;
     role: string;
-    status: ApplicationPipelineStatus;
+    status: ApplicationPipelineStatus | 'Active' | 'Resigned' | 'Suspended' | 'Voluntary Suspension' | string;
     investitureDate?: string;
     createdAt: string;
     awardGoal: string;
@@ -173,7 +173,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const getStageNumber = (status: ApplicationPipelineStatus) => {
+  const getStageNumber = (status: ApplicationPipelineStatus | string) => {
     switch (status) {
       case 'Pending Review':
       case 'Processing':

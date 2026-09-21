@@ -313,6 +313,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
       databaseId: string;
       collections: Record<string, number>;
     };
+    firebaseAdmin?: {
+      initialized: boolean;
+      projectId: string | null;
+      clientEmail: string | null;
+      error: string | null;
+    };
   } | null>(null);
 
   const [loadingServer, setLoadingServer] = useState(false);
@@ -1100,8 +1106,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
                       {serverStatus?.firebase?.status || 'Connected'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-600 mt-1 font-medium truncate" title="ai-studio-arabiyyamembersp-4b867908-ad55-4a75-a72c-bf28a764b835">
-                    DB: (default)
+                  <p className="text-[11px] text-slate-600 mt-1 font-medium truncate" title={serverStatus?.firebaseAdmin?.clientEmail || serverStatus?.firebase?.projectId}>
+                    {serverStatus?.firebaseAdmin?.initialized ? (
+                      <span className="text-emerald-700 font-bold">Admin SDK Active ({serverStatus.firebaseAdmin.clientEmail ? serverStatus.firebaseAdmin.clientEmail.split('@')[0] : 'Service Account'})</span>
+                    ) : (
+                      <span>Project: {serverStatus?.firebase?.projectId || 'arabiyyaidentity'}</span>
+                    )}
                   </p>
                 </div>
               </div>

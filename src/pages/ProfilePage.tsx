@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { MemberApplication, ProgressionLevel, RoleSection, AwardGoal } from '../types';
+import { MemberApplication, ProgressionLevel, RoleSection, AwardGoal, AuthUser } from '../types';
 import { calculateTimeRemainingForAward, getProgressionRequirement } from '../utils/awardTimeline';
 import { calculateTermFromInvestiture } from '../utils/termCalculation';
 import { 

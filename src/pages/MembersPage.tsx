@@ -162,8 +162,8 @@ export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
 
   // Filter out non-scout administrative accounts and show only directory members
   const directoryMembers = members.filter((m) => 
-    m.role !== 'Leader' && 
-    m.role !== 'Secretary' && 
+    (m.role as string) !== 'Leader' && 
+    (m.role as string) !== 'Secretary' && 
     m.role !== 'Admin'
   );
 
@@ -836,7 +836,6 @@ export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
         onDeleteMember={handleRequestDeleteMember}
         onStatusUpdated={fetchMembers}
         calculateTimeRemainingForAward={calculateTimeRemainingForAward}
-        getProgressionRequirement={getProgressionRequirement}
       />
 
       {/* Delete Confirmation Modal for Single Member */}

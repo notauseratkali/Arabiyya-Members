@@ -352,7 +352,7 @@ export const RequestsPage: React.FC<RequestsPageProps> = ({ onNavigate }) => {
                         <button
                           onClick={() => {
                             setSelectedMemberForInvestiture(mem);
-                            setNewPipelineStatus(mem.status);
+                            setNewPipelineStatus(mem.status as ApplicationPipelineStatus);
                             if (mem.investitureDate) setInvestitureDateInput(mem.investitureDate);
                           }}
                           className="px-3 py-1.5 bg-maroon text-white font-bold rounded-lg text-xs hover:bg-[#660000]"
