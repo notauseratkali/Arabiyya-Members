@@ -556,7 +556,7 @@ export async function sendTelegramOtp(options: SendTelegramOtpOptions): Promise<
       botLink,
       botUsername,
       dispatchedTo: targetDisplay,
-      message: `Verification OTP dispatched to Telegram bot for ${targetDisplay}.`
+      message: 'Verification OTP dispatched to your registered Telegram contact.'
     };
   }
 

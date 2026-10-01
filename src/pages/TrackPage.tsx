@@ -176,6 +176,7 @@ export const TrackPage: React.FC<TrackPageProps> = ({ onNavigate }) => {
   const getStageNumber = (status: ApplicationPipelineStatus | string) => {
     switch (status) {
       case 'Pending Review':
+      case 'Pending Verification':
       case 'Processing':
         return 1;
       case 'Interview & Investiture':

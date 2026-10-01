@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import { ApplicationPipelineStatus, LeaderApplication, MemberApplication, ProfileUpdateRequest } from '../types';
+import { isPendingJoinStatus } from '../utils/requestCounts';
 import { Inbox, ShieldAlert, CheckCircle2, Clock, Calendar, UserCheck, Check, X, FileText, AlertCircle } from 'lucide-react';
 import { ProfileUpdateDetail } from '../components/ProfileUpdateDetail';
 
@@ -83,8 +84,7 @@ interface RequestsPageProps {
 }
 
 export const RequestsPage: React.FC<RequestsPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'join' | 'profile' | 'absence' | 'archived'>('join');
   const [loading, setLoading] = useState(true);
@@ -197,7 +197,7 @@ export const RequestsPage: React.FC<RequestsPageProps> = ({ onNavigate }) => {
   }
 
   const pendingMemberApps = (memberApps || []).filter(
-    m => m && (m.status === 'Pending Review' || m.status === 'Interview & Investiture' || m.status === 'Processing' || m.status === 'Interview' || m.status === 'Investiture')
+    m => m && isPendingJoinStatus(m.status)
   );
   const reviewedMemberApps = (memberApps || []).filter(
     m => m && (m.status === 'Approved' || m.status === 'Rejected' || m.status === 'Active' || m.status === 'Resigned' || m.status === 'Suspended')
@@ -337,7 +337,7 @@ export const RequestsPage: React.FC<RequestsPageProps> = ({ onNavigate }) => {
                         <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] ${
                           (mem.status === 'Approved' || mem.status === 'Investiture') ? 'bg-emerald-100 text-emerald-800' :
                           (mem.status === 'Interview & Investiture' || mem.status === 'Interview') ? 'bg-amber-100 text-amber-800' :
-                          (mem.status === 'Pending Review' || mem.status === 'Processing') ? 'bg-blue-100 text-blue-800' :
+                          (mem.status === 'Pending Review' || mem.status === 'Pending Verification' || mem.status === 'Processing') ? 'bg-blue-100 text-blue-800' :
                           'bg-red-100 text-red-800'
                         }`}>
                           {mem.status}

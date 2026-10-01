@@ -67,11 +67,7 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({ onNavigate
     (user && (
       user.role === 'Secretary' ||
       user.role === 'Admin' ||
-      user.isAdmin === true ||
-      user.username === 'admin' ||
-      user.email === 'nazihnafiz@gmail.com' ||
-      user.email === 'it@arabiyyascouts.org' ||
-      user.email === 'admin@arabiyyarovers.net'
+      user.isAdmin === true
     ))
   );
 

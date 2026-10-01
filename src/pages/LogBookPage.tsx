@@ -56,7 +56,7 @@ const STATUS_CONFIG: Record<LogBookStatus, { label: string; icon: any; color: st
 
 export const LogBookPage: React.FC<LogBookPageProps> = ({ onNavigate }) => {
   const { user, isSecretary } = useAuth();
-  const isAdminOrLeader = isSecretary || user?.role === 'Admin' || user?.role === 'Leader' || user?.isAdmin;
+  const isAdminOrLeader = isSecretary;
 
   // View Mode: 'my' (Personal logbook) vs 'crew' (Leader verification queue)
   const [viewTab, setViewTab] = useState<'my' | 'crew'>('my');

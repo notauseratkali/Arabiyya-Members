@@ -1,4 +1,5 @@
 import { handleClientApiFallback } from './apiClient';
+import { resolveApiBase } from './apiBase';
 
 /**
  * A highly resilient fetch wrapper with automatic exponential backoff retries.
@@ -11,15 +12,17 @@ export async function fetchWithRetry(
   retries = 2,
   delay = 800
 ): Promise<Response> {
-  // Dynamically prefix the live Cloud Run backend URL when hosted on static environments like GitHub Pages
   let targetUrl = url;
   if (url.startsWith('/api/')) {
-    const isGitHubPages = window.location.hostname.endsWith('github.io');
-    const isLocalStaticClient = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port !== '3000';
-    
-    if (isGitHubPages || isLocalStaticClient) {
-      const backendBaseUrl = 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
-      targetUrl = `${backendBaseUrl}${url}`;
+    try {
+      const backendBaseUrl = resolveApiBase();
+      if (backendBaseUrl) targetUrl = `${backendBaseUrl}${url}`;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'VITE_API_URL is not set. See README.md.';
+      return new Response(JSON.stringify({ error: message }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
   }
 

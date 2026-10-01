@@ -1,5 +1,9 @@
 name: Deploy to GitHub Pages
 
+# Owner step (cannot be committed): GitHub → Settings → Pages → Build and deployment
+# → Source: GitHub Actions. While Source stays "Deploy from a branch", GitHub also
+# runs its own publisher and the two deploys race. This workflow is the only deploy.
+
 on:
   push:
     branches:
@@ -40,9 +44,10 @@ jobs:
       - name: Build project
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
-        run: |
-          npm run build
-          cp dist/index.html dist/404.html
+          # Repository variable (Settings → Secrets and variables → Actions → Variables).
+          # Empty until the API host exists. The client then errors instead of calling a dead host.
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

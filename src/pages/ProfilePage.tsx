@@ -37,7 +37,7 @@ interface ProfilePageProps {
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isSecretary } = useAuth();
   const [profileData, setProfileData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -531,8 +531,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
   const memberAgeText = (profileData?.ageYears !== undefined && profileData?.ageYears !== null)
     ? `${profileData.ageYears} yrs ${profileData.ageMonths || 0} mos`
     : ((user.ageYears !== undefined && user.ageYears !== null) ? `${user.ageYears} yrs ${user.ageMonths || 0} mos` : 'N/A');
-
-  const isSecretary = user?.role === 'Secretary';
 
   if (isSecretary) {
     return (

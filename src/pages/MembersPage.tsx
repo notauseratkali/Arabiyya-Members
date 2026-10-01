@@ -38,8 +38,7 @@ interface MembersPageProps {
 }
 
 export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
   const [members, setMembers] = useState<MemberApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -829,14 +828,16 @@ export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
         onSuccess={fetchMembers}
       />
 
-      <MemberDetailsModal
-        member={selectedMember}
-        onClose={() => setSelectedMember(null)}
-        isSecretary={isSecretary}
-        onDeleteMember={handleRequestDeleteMember}
-        onStatusUpdated={fetchMembers}
-        calculateTimeRemainingForAward={calculateTimeRemainingForAward}
-      />
+      {selectedMember && (
+        <MemberDetailsModal
+          member={selectedMember}
+          onClose={() => setSelectedMember(null)}
+          isSecretary={isSecretary}
+          onDeleteMember={handleRequestDeleteMember}
+          onStatusUpdated={fetchMembers}
+          calculateTimeRemainingForAward={calculateTimeRemainingForAward}
+        />
+      )}
 
       {/* Delete Confirmation Modal for Single Member */}
       <DeleteConfirmationModal

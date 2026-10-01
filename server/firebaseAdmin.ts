@@ -71,7 +71,7 @@ export function initFirebaseAdmin(): { success: boolean; app: App | null; error?
 
     if (!serviceAccountObj.project_id || !serviceAccountObj.private_key) {
       initError = 'Service account object is missing project_id or private_key.';
-      return { success: false, app: null, error: initError };
+      return { success: false, app: null, error: initError ?? undefined };
     }
 
     projectId = serviceAccountObj.project_id;
@@ -95,7 +95,7 @@ export function initFirebaseAdmin(): { success: boolean; app: App | null; error?
   } catch (err: any) {
     initError = err.message || String(err);
     console.warn('[Firebase Admin] Initialization warning:', initError);
-    return { success: false, app: null, error: initError };
+    return { success: false, app: null, error: initError ?? undefined };
   }
 }
 
@@ -109,9 +109,9 @@ try {
 export function getFirebaseAdminStatus() {
   return {
     initialized: Boolean(adminApp),
-    projectId: projectId || (adminApp ? adminApp.options.projectId : null),
-    clientEmail: clientEmail,
-    error: initError
+    projectId: projectId || adminApp?.options.projectId,
+    clientEmail: clientEmail || undefined,
+    error: initError ?? undefined
   };
 }
 

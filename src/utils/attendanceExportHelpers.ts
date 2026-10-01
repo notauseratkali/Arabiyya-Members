@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import { buildXlsxBuffer } from './xlsxWorkbook';
 import { formatDateDDMMMYYYY } from './dateUtils';
 import { EventItem, MemberApplication, AttendanceRecord, MeetingMinute } from '../types';
 import {
@@ -13,6 +13,19 @@ import {
 const sanitizeFilename = (str: string): string => {
   return str.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
 };
+
+async function downloadWorkbook(filename: string, sheets: { name: string; rows: Record<string, any>[] }[]) {
+  const buffer = await buildXlsxBuffer(sheets);
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 /**
  * =========================================================================
@@ -104,10 +117,8 @@ export const downloadEventAttendanceCSV = (data: EventExportData) => {
 /**
  * Generates an Excel workbook (.xlsx) with styled sheets for single event attendance
  */
-export const downloadEventAttendanceXLSX = (data: EventExportData) => {
+export const downloadEventAttendanceXLSX = async (data: EventExportData) => {
   const { event, members, records, meetingMinute } = data;
-
-  const wb = XLSX.utils.book_new();
 
   // Sheet 1: Attendance Roster
   const attendanceRows: any[] = [];
@@ -134,8 +145,7 @@ export const downloadEventAttendanceXLSX = (data: EventExportData) => {
     });
   });
 
-  const wsAttendance = XLSX.utils.json_to_sheet(attendanceRows);
-  XLSX.utils.book_append_sheet(wb, wsAttendance, 'Event Attendance');
+  const attendanceSheet = attendanceRows;
 
   // Sheet 2: Event Summary & Metadata
   const attendedCount = attendanceRows.filter(r => r['Attendance Status'] === 'Attended').length;
@@ -161,10 +171,13 @@ export const downloadEventAttendanceXLSX = (data: EventExportData) => {
     { Field: 'Report Generated At', Value: new Date().toLocaleString() }
   ];
 
-  const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'Event Overview');
-
-  XLSX.writeFile(wb, `attendance_${sanitizeFilename(event.name)}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await downloadWorkbook(
+    `attendance_${sanitizeFilename(event.name)}_${new Date().toISOString().slice(0,10)}.xlsx`,
+    [
+      { name: 'Event Attendance', rows: attendanceSheet },
+      { name: 'Event Overview', rows: summaryData }
+    ]
+  );
 };
 
 /**
@@ -502,9 +515,8 @@ export const downloadMasterSheetCSV = (data: MasterSheetExportData) => {
 /**
  * Downloads Master Sheet Excel (.xlsx) with multi-sheet analytics & complete matrix
  */
-export const downloadMasterSheetXLSX = (data: MasterSheetExportData) => {
+export const downloadMasterSheetXLSX = async (data: MasterSheetExportData) => {
   const { events, members, records } = data;
-  const wb = XLSX.utils.book_new();
 
   // 1. Matrix Sheet (Full Member x Event Matrix)
   const matrixRows: any[] = [];
@@ -554,8 +566,7 @@ export const downloadMasterSheetXLSX = (data: MasterSheetExportData) => {
     matrixRows.push(rowObj);
   });
 
-  const wsMatrix = XLSX.utils.json_to_sheet(matrixRows);
-  XLSX.utils.book_append_sheet(wb, wsMatrix, 'Attendance Matrix');
+  const matrixSheet = matrixRows;
 
   // 2. Event Summary Sheet
   const eventSummaries: any[] = [];
@@ -591,10 +602,13 @@ export const downloadMasterSheetXLSX = (data: MasterSheetExportData) => {
     });
   });
 
-  const wsEvents = XLSX.utils.json_to_sheet(eventSummaries);
-  XLSX.utils.book_append_sheet(wb, wsEvents, 'Events Breakdown');
-
-  XLSX.writeFile(wb, `attendance_mastersheet_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await downloadWorkbook(
+    `attendance_mastersheet_${new Date().toISOString().slice(0,10)}.xlsx`,
+    [
+      { name: 'Attendance Matrix', rows: matrixSheet },
+      { name: 'Events Breakdown', rows: eventSummaries }
+    ]
+  );
 };
 
 /**
@@ -895,9 +909,8 @@ export const downloadMemberAttendanceCSV = (data: MemberExportData) => {
 /**
  * Downloads Member Attendance Excel (.xlsx) with dedicated Event History and Summary tabs
  */
-export const downloadMemberAttendanceXLSX = (data: MemberExportData) => {
+export const downloadMemberAttendanceXLSX = async (data: MemberExportData) => {
   const { member, events, records } = data;
-  const wb = XLSX.utils.book_new();
 
   const city = getMemberCurrentCity(member);
   const isSusp = isMemberVoluntarilySuspended(member);
@@ -941,8 +954,7 @@ export const downloadMemberAttendanceXLSX = (data: MemberExportData) => {
     });
   });
 
-  const wsEvents = XLSX.utils.json_to_sheet(eventRows);
-  XLSX.utils.book_append_sheet(wb, wsEvents, 'Events Log');
+  const eventsSheet = eventRows;
 
   // Sheet 2: Member Overview & Compliance Summary
   const totalConcluded = attended + excused + absent;
@@ -965,10 +977,13 @@ export const downloadMemberAttendanceXLSX = (data: MemberExportData) => {
     { Field: 'Report Generated At', Value: new Date().toLocaleString() }
   ];
 
-  const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'Member Summary');
-
-  XLSX.writeFile(wb, `attendance_member_${sanitizeFilename(member.fullName || 'member')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await downloadWorkbook(
+    `attendance_member_${sanitizeFilename(member.fullName || 'member')}_${new Date().toISOString().slice(0,10)}.xlsx`,
+    [
+      { name: 'Events Log', rows: eventsSheet },
+      { name: 'Member Summary', rows: summaryData }
+    ]
+  );
 };
 
 /**

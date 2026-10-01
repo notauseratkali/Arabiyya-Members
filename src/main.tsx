@@ -2,6 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { resolveApiBase } from './utils/apiBase.ts';
 import './index.css';
 
 // Global fetch interceptor to automatically route API calls to the live Cloud Run server when hosted on static sites like GitHub Pages
@@ -17,13 +18,39 @@ try {
       url = (input as Request).url;
     }
 
+    const isApiRequest = url.startsWith('/api/') || url.includes('/api/');
+    if (isApiRequest) {
+      let token: string | null = null;
+      try {
+        token = window.localStorage.getItem('arabiyya_auth_token');
+      } catch {
+        token = null;
+      }
+      if (token) {
+        const headers = new Headers(init?.headers || undefined);
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+        init = { ...(init || {}), headers };
+      }
+    }
+
     // If the request is a relative API endpoint
     if (url.startsWith('/api/') || (url.startsWith(window.location.origin) && url.includes('/api/'))) {
       const isBackendHost = window.location.hostname.endsWith('run.app') || 
         ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port === '3000');
       
       if (!isBackendHost) {
-        const backendBaseUrl = 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+        let backendBaseUrl = '';
+        try {
+          backendBaseUrl = resolveApiBase();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'VITE_API_URL is not set. See README.md.';
+          return new Response(JSON.stringify({ error: message }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
         const cleanPath = url.startsWith('/api/') ? url : url.substring(window.location.origin.length);
         url = `${backendBaseUrl}${cleanPath}`;
       }

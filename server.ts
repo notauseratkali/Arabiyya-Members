@@ -33,9 +33,15 @@ import {
   startTelegramPolling
 } from './server/telegram';
 import { INITIAL_ROVER_POLICY, sortPolicyItems, PolicyItem } from './src/data/policyData';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, setLogLevel, serverTimestamp } from 'firebase/firestore';
-import { initFirebaseAdmin, getFirebaseAdminStatus, adminDb, adminAuth } from './server/firebaseAdmin';
+import { getFirebaseAdminStatus } from './server/firebaseAdmin';
+import { firestoreReady, saveDoc, removeDoc, loadAll, loadOne } from './server/firestoreStore';
+import { hashPassword, checkPassword, ensurePasswordHash, memberPasswordInput } from './server/passwords';
+import { isPublicApi, requiresSecretary, canActAsMember } from './server/apiAccess';
+import { publishTimeReached, memberCanSeeEvent } from './server/eventPublish';
+import { accountIsSecretary, identityChangeError, signupUsernameError, visibleInMemberDirectory } from './server/identity';
+import { maskContact } from './server/contactMask';
+import { sessionFromAuthHeader, signSession, SessionUser } from './server/session';
+import { sanitizeHtml } from './src/utils/sanitizeHtml';
 import fs from 'fs';
 
 // Process resilience guards for Cloud Run container lifecycle
@@ -51,27 +57,70 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Global CORS Middleware to allow the static GitHub Pages frontend to connect securely to this Cloud Run backend
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return url.protocol === 'http:' || url.protocol === 'https:';
+    if (host === 'notauseratkali.github.io') return url.protocol === 'https:';
+    if (host === 'portal.arabiyyascouts.org') return url.protocol === 'https:';
+    if (host.endsWith('.run.app')) return url.protocol === 'https:';
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Allow the known static site and local dev to call this API. Bearer tokens are used instead of cookies.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin) {
-    if (origin.includes('github.io') || origin.includes('localhost') || origin.includes('run.app')) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  if (typeof origin === 'string' && isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Accept, Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
 });
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (isPublicApi(req.method, req.path)) return next();
+
+  const session = sessionFromAuthHeader(req.headers.authorization);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  (req as any).sessionUser = session;
+  if (requiresSecretary(req.method, req.path) && !session.isSecretary) {
+    return res.status(403).json({ error: 'Permission denied.' });
+  }
+  next();
+});
+
+function currentSession(req: any): SessionUser | null {
+  return (req.sessionUser as SessionUser) || null;
+}
+
+function issueSessionToken(user: any): string {
+  const secretary = isUserAdminOrSecretary(user?.username, user?.email, user?.id, user?.role) || user?.isAdmin === true;
+  return signSession({
+    id: String(user?.id || user?.username || ''),
+    username: String(user?.username || ''),
+    email: String(user?.email || ''),
+    role: String(user?.role || ''),
+    isSecretary: secretary
+  });
+}
+
+function withoutSecrets<T extends Record<string, any>>(member: T): Omit<T, 'password' | 'passwordHash'> {
+  const { password, passwordHash, ...safe } = member;
+  return safe;
+}
 
 function sendWelcomeEmailIfNeeded(member: any, oldStatus: string, newStatus: string) {
   const isNowActive = newStatus === 'Approved' || newStatus === 'Active';
@@ -106,9 +155,9 @@ function cleanupExpiredResignations() {
         memberApplications.splice(idx, 1);
         console.log(`[Resigned Member 30d Auto-Delete]: Deleted member ${id} after 30 days of resignation.`);
       }
-      if (db) {
-        deleteDoc(doc(db, 'members', id)).catch(err => console.error('[Firestore Resign Delete Error]:', err));
-        deleteDoc(doc(db, 'member_applications', id)).catch(err => console.error('[Firestore Resign App Delete Error]:', err));
+      if (firestoreReady()) {
+        removeDoc('members', id).catch(err => console.error('[Firestore Resign Delete Error]:', err));
+        removeDoc('member_applications', id).catch(err => console.error('[Firestore Resign App Delete Error]:', err));
       }
     });
   }
@@ -196,20 +245,24 @@ export let systemSettings = {
   ]
 };
 
-function isUserAdminOrSecretary(username?: string, email?: string, id?: string, role?: string): boolean {
-  if (role === 'Secretary' || role === 'Admin') return true;
-  if (username === 'admin' || email === 'it@arabiyyascouts.org' || email === 'admin@arabiyyarovers.net' || email === 'nazihnafiz@gmail.com') return true;
-  if (systemSettings.admin_roles && Array.isArray(systemSettings.admin_roles)) {
-    for (const r of systemSettings.admin_roles) {
-      if (r.assignedUsernames && Array.isArray(r.assignedUsernames)) {
-        const lowerAssigned = r.assignedUsernames.map(u => u.toLowerCase());
-        if (username && lowerAssigned.includes(username.toLowerCase())) return true;
-        if (email && lowerAssigned.includes(email.toLowerCase())) return true;
-        if (id && lowerAssigned.includes(id.toLowerCase())) return true;
-      }
+function privilegedUsernames(): string[] {
+  const names: string[] = [];
+  if (!systemSettings.admin_roles || !Array.isArray(systemSettings.admin_roles)) return names;
+  for (const role of systemSettings.admin_roles) {
+    for (const name of role.assignedUsernames || []) {
+      if (name) names.push(String(name));
     }
   }
-  return false;
+  return names;
+}
+
+function isUserAdminOrSecretary(username?: string, _email?: string, id?: string, role?: string): boolean {
+  return accountIsSecretary({
+    username,
+    id,
+    role,
+    privilegedUsernames: privilegedUsernames()
+  });
 }
 
 // Member Applications Store
@@ -219,7 +272,7 @@ let memberApplications: any[] = [];
 let ADMIN_USER: any = {
   id: 'admin-001',
   username: 'admin',
-  passwordHash: 'admin123',
+  passwordHash: process.env.ADMIN_PASSWORD || 'admin123',
   fullName: 'Ahmed Nazih Nafiz',
   commonName: 'Ahmed',
   role: 'Secretary',
@@ -314,8 +367,8 @@ let policiesStore: PolicyItem[] = [];
 // Seed Profile Update Requests
 let profileUpdateRequests: any[] = [];
 
-// Initialize Firestore from configuration file
-let db: any = null;
+// Firestore is reached only through the Admin SDK (server/firestoreStore.ts).
+// Without FIREBASE_SERVICE_ACCOUNT the helpers no-op and the in-memory stores above are used.
 let configuredFirebaseProjectId = 'arabiyyaidentity';
 try {
   const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
@@ -324,58 +377,19 @@ try {
     if (firebaseConfigData.projectId) {
       configuredFirebaseProjectId = firebaseConfigData.projectId;
     }
-    const firebaseConfig = {
-      apiKey: firebaseConfigData.apiKey,
-      authDomain: firebaseConfigData.authDomain,
-      projectId: firebaseConfigData.projectId,
-      storageBucket: firebaseConfigData.storageBucket,
-      messagingSenderId: firebaseConfigData.messagingSenderId,
-      appId: firebaseConfigData.appId
-    };
-
-    const fbApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-    // Suppress benign connection pool warnings in the server logs
-    setLogLevel('error');
-    const configuredServerDbId = firebaseConfigData.firestoreDatabaseId;
-    try {
-      if (configuredServerDbId && configuredServerDbId !== '(default)') {
-        try {
-          db = initializeFirestore(fbApp, {
-            experimentalForceLongPolling: true
-          }, configuredServerDbId);
-          console.log('[Firestore initialized successfully on server with dbId:', configuredServerDbId);
-        } catch (serverPrimaryErr) {
-          console.warn('[Firestore] Failed to initialize named database on server, falling back to default:', serverPrimaryErr);
-          db = initializeFirestore(fbApp, {
-            experimentalForceLongPolling: true
-          });
-          console.log('[Firestore initialized successfully on server with default database]');
-        }
-      } else {
-        db = initializeFirestore(fbApp, {
-          experimentalForceLongPolling: true
-        });
-        console.log('[Firestore initialized successfully on server with default database]');
-      }
-    } catch (initErr) {
-      console.error('[Firestore] Server initialization error, falling back to default:', initErr);
-      db = initializeFirestore(fbApp, {
-        experimentalForceLongPolling: true
-      });
-    }
-  } else {
-    console.warn('[Notice] firebase-applet-config.json not found on disk, running with local in-memory store.');
   }
 } catch (err) {
-  console.error('[Failed to initialize Firestore on server]:', err);
+  console.error('[Failed to read firebase-applet-config.json]:', err);
 }
+console.log(firestoreReady()
+  ? `[Firestore] Admin SDK ready (project hint: ${configuredFirebaseProjectId})`
+  : '[Firestore] No service account configured. Using the in-memory store. Set FIREBASE_SERVICE_ACCOUNT to persist data. See README.md.');
 
-// Firestore persistence synchronization helpers
 function cleanFirestoreData(obj: any): any {
   if (obj === null || obj === undefined) return null;
   if (typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(cleanFirestoreData);
-  
+
   const cleaned: Record<string, any> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined) {
@@ -386,259 +400,280 @@ function cleanFirestoreData(obj: any): any {
 }
 
 async function persistMember(member: any) {
-  if (!db) return;
+  if (!firestoreReady() || !member?.id) return;
   try {
-    await setDoc(doc(db, 'member_applications', member.id), cleanFirestoreData(member), { merge: true });
+    await saveDoc('member_applications', member.id, cleanFirestoreData(member));
   } catch (err) {
     console.error(`[Error persisting member ${member.id} to Firestore]:`, err);
   }
 }
 
 async function removeMember(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'member_applications', id));
+    await removeDoc('member_applications', id);
   } catch (err) {
     console.error(`[Error deleting member ${id} from Firestore]:`, err);
   }
 }
 
-
 async function persistSettings() {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
     syncLogoFileToDisk(systemSettings.group_logo);
-    await setDoc(doc(db, 'settings', 'system'), cleanFirestoreData(systemSettings), { merge: true });
+    await saveDoc('settings', 'system', cleanFirestoreData(systemSettings));
   } catch (err) {
     console.error(`[Error persisting settings to Firestore]:`, err);
   }
 }
 
 async function persistLeader(leader: any) {
-  if (!db) return;
+  if (!firestoreReady() || !leader?.id) return;
   try {
-    await setDoc(doc(db, 'leader_applications', leader.id), cleanFirestoreData(leader), { merge: true });
+    await saveDoc('leader_applications', leader.id, cleanFirestoreData(leader));
   } catch (err) {
     console.error(`[Error persisting leader ${leader.id} to Firestore]:`, err);
   }
 }
 
 async function removeLeader(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'leader_applications', id));
+    await removeDoc('leader_applications', id);
   } catch (err) {
     console.error(`[Error deleting leader ${id} from Firestore]:`, err);
   }
 }
 
 async function persistEvent(event: any) {
-  if (!db) return;
+  if (!firestoreReady() || !event?.id) return;
   try {
-    await setDoc(doc(db, 'events', event.id), cleanFirestoreData(event), { merge: true });
+    await saveDoc('events', event.id, cleanFirestoreData(event));
   } catch (err) {
     console.error(`[Error persisting event ${event.id} to Firestore]:`, err);
   }
 }
 
 async function removeEvent(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'events', id));
+    await removeDoc('events', id);
   } catch (err) {
     console.error(`[Error deleting event ${id} from Firestore]:`, err);
   }
 }
 
 async function persistAnnouncement(ann: any) {
-  if (!db) return;
+  if (!firestoreReady() || !ann?.id) return;
   try {
-    await setDoc(doc(db, 'announcements', ann.id), cleanFirestoreData(ann), { merge: true });
+    await saveDoc('announcements', ann.id, cleanFirestoreData(ann));
   } catch (err) {
     console.error(`[Error persisting announcement ${ann.id} to Firestore]:`, err);
   }
 }
 
 async function removeAnnouncement(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'announcements', id));
+    await removeDoc('announcements', id);
   } catch (err) {
     console.error(`[Error deleting announcement ${id} from Firestore]:`, err);
   }
 }
 
 async function persistAnnouncementPreset(preset: any) {
-  if (!db) return;
+  if (!firestoreReady() || !preset?.id) return;
   try {
-    await setDoc(doc(db, 'announcement_presets', preset.id), cleanFirestoreData(preset), { merge: true });
+    await saveDoc('announcement_presets', preset.id, cleanFirestoreData(preset));
   } catch (err) {
     console.error(`[Error persisting announcement preset ${preset.id} to Firestore]:`, err);
   }
 }
 
 async function removeAnnouncementPreset(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'announcement_presets', id));
+    await removeDoc('announcement_presets', id);
   } catch (err) {
     console.error(`[Error deleting announcement preset ${id} from Firestore]:`, err);
   }
 }
 
 async function persistAttendance(record: any) {
-  if (!db) return;
+  if (!firestoreReady() || !record?.id) return;
   try {
-    await setDoc(doc(db, 'attendance', record.id), cleanFirestoreData(record), { merge: true });
+    await saveDoc('attendance', record.id, cleanFirestoreData(record));
   } catch (err) {
     console.error(`[Error persisting attendance ${record.id} to Firestore]:`, err);
   }
 }
 
 async function persistMeetingMinute(minItem: any) {
-  if (!db) return;
+  if (!firestoreReady() || !minItem?.id) return;
   try {
-    await setDoc(doc(db, 'meeting_minutes', minItem.id), cleanFirestoreData(minItem), { merge: true });
+    await saveDoc('meeting_minutes', minItem.id, cleanFirestoreData(minItem));
   } catch (err) {
     console.error(`[Error persisting meeting minute ${minItem.id} to Firestore]:`, err);
   }
 }
 
 async function removeMeetingMinute(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'meeting_minutes', id));
+    await removeDoc('meeting_minutes', id);
   } catch (err) {
     console.error(`[Error deleting meeting minute ${id} from Firestore]:`, err);
   }
 }
 
 async function persistProfileRequest(request: any) {
-  if (!db) return;
+  if (!firestoreReady() || !request?.id) return;
   try {
-    await setDoc(doc(db, 'profile_update_requests', request.id), cleanFirestoreData(request), { merge: true });
+    await saveDoc('profile_update_requests', request.id, cleanFirestoreData(request));
   } catch (err) {
     console.error(`[Error persisting profile request ${request.id} to Firestore]:`, err);
   }
 }
 
 async function deleteProfileRequest(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'profile_update_requests', id));
+    await removeDoc('profile_update_requests', id);
   } catch (err) {
     console.error(`[Error deleting profile request ${id} from Firestore]:`, err);
   }
 }
 
 async function persistLogBookEntry(entry: any) {
-  if (!db) return;
+  if (!firestoreReady() || !entry?.id) return;
   try {
-    await setDoc(doc(db, 'logbook_entries', entry.id), cleanFirestoreData(entry), { merge: true });
+    await saveDoc('logbook_entries', entry.id, cleanFirestoreData(entry));
   } catch (err) {
     console.error(`[Error persisting logbook entry ${entry.id} to Firestore]:`, err);
   }
 }
 
 async function removeLogBookEntry(id: string) {
-  if (!db) return;
+  if (!firestoreReady()) return;
   try {
-    await deleteDoc(doc(db, 'logbook_entries', id));
+    await removeDoc('logbook_entries', id);
   } catch (err) {
     console.error(`[Error deleting logbook entry ${id} from Firestore]:`, err);
   }
 }
 
+async function upgradeStoredPassword(record: any, plain: string) {
+  const hashed = await hashPassword(plain.trim());
+  record.passwordHash = hashed;
+  delete record.password;
+  const isAdminRecord = record === ADMIN_USER || record.id === 'admin-001';
+  if (isAdminRecord) {
+    ADMIN_USER.passwordHash = hashed;
+    const adminRecord = memberApplications.find((m) => m.id === 'admin-001');
+    if (adminRecord && adminRecord !== record) {
+      adminRecord.passwordHash = hashed;
+      delete adminRecord.password;
+    }
+    await persistMember(adminRecord || record);
+    return;
+  }
+  await persistMember(record);
+}
+
+function ensureBuiltinAdminRecord() {
+  const index = memberApplications.findIndex((m) => m.id === 'admin-001');
+  if (index === -1) {
+    memberApplications.unshift(ADMIN_USER);
+    return;
+  }
+  const existing = memberApplications[index];
+  if (existing === ADMIN_USER) return;
+  Object.assign(ADMIN_USER, existing);
+  if (process.env.ADMIN_PASSWORD) {
+    ADMIN_USER.passwordHash = process.env.ADMIN_PASSWORD;
+  }
+  memberApplications[index] = ADMIN_USER;
+}
+
 async function loadPersistedData() {
-  if (!db) return;
+  if (firestoreReady()) {
   try {
-    const membersSnapshot = await getDocs(collection(db, 'member_applications'));
+    const membersSnapshot = await loadAll('member_applications');
     const loadedMembers: any[] = [];
-    membersSnapshot.forEach(doc => {
-      loadedMembers.push({ id: doc.id, ...doc.data() });
+    membersSnapshot.forEach(docSnap => {
+      loadedMembers.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedMembers.length > 0) {
       memberApplications = loadedMembers;
       console.log(`[Loaded ${memberApplications.length} member applications from Firestore]`);
 
-      // Sync admin-001 document from Firestore to ADMIN_USER
-      const foundAdmin = memberApplications.find(m => m.id === 'admin-001' || m.username === 'admin');
+      const foundAdmin = memberApplications.find(m => m.id === 'admin-001')
+        || memberApplications.find(m => m.username === 'admin' && (m.role === 'Secretary' || m.role === 'Admin'));
       if (foundAdmin) {
         Object.assign(ADMIN_USER, foundAdmin);
-        console.log(`[Synced ADMIN_USER from Firestore. passwordHash: ${ADMIN_USER.passwordHash}]`);
-      }
-      
-      // Fix-up hijacked or pending profiles for developers/admins to ensure they are active
-      memberApplications.forEach(m => {
-        if ((m.email === 'nazihnafiz@gmail.com' || m.email === 'it@arabiyyascouts.org') && m.id !== 'admin-001') {
-          let changed = false;
-          if (m.status === 'Pending Review' || m.status === 'Pending') {
-            m.status = 'Investiture';
-            m.investitureDate = m.investitureDate || new Date().toISOString().split('T')[0];
-            changed = true;
-          }
-          if (changed) {
-            persistMember(m);
-          }
+        if (process.env.ADMIN_PASSWORD) {
+          ADMIN_USER.passwordHash = process.env.ADMIN_PASSWORD;
         }
-      });
+        console.log('[Synced ADMIN_USER from Firestore]');
+      }
+
       cleanupExpiredResignations();
     }
 
-    const leadersSnapshot = await getDocs(collection(db, 'leader_applications'));
+    const leadersSnapshot = await loadAll('leader_applications');
     const loadedLeaders: any[] = [];
-    leadersSnapshot.forEach(doc => {
-      loadedLeaders.push({ id: doc.id, ...doc.data() });
+    leadersSnapshot.forEach(docSnap => {
+      loadedLeaders.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedLeaders.length > 0) {
       leaderApplications = loadedLeaders;
       console.log(`[Loaded ${leaderApplications.length} leader applications from Firestore]`);
     }
 
-    const eventsSnapshot = await getDocs(collection(db, 'events'));
+    const eventsSnapshot = await loadAll('events');
     const loadedEvents: any[] = [];
-    eventsSnapshot.forEach(doc => {
-      loadedEvents.push({ id: doc.id, ...doc.data() });
+    eventsSnapshot.forEach(docSnap => {
+      loadedEvents.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedEvents.length > 0) {
       eventsStore = loadedEvents;
       console.log(`[Loaded ${eventsStore.length} events from Firestore]`);
     }
 
-    const attendanceSnapshot = await getDocs(collection(db, 'attendance'));
+    const attendanceSnapshot = await loadAll('attendance');
     const loadedAttendance: any[] = [];
-    attendanceSnapshot.forEach(doc => {
-      loadedAttendance.push({ id: doc.id, ...doc.data() });
+    attendanceSnapshot.forEach(docSnap => {
+      loadedAttendance.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedAttendance.length > 0) {
       attendanceStore = loadedAttendance;
       console.log(`[Loaded ${attendanceStore.length} attendance records from Firestore]`);
     }
 
-    const profileReqsSnapshot = await getDocs(collection(db, 'profile_update_requests'));
+    const profileReqsSnapshot = await loadAll('profile_update_requests');
     const loadedProfileReqs: any[] = [];
-    profileReqsSnapshot.forEach(doc => {
-      loadedProfileReqs.push({ id: doc.id, ...doc.data() });
+    profileReqsSnapshot.forEach(docSnap => {
+      loadedProfileReqs.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedProfileReqs.length > 0) {
       profileUpdateRequests = loadedProfileReqs;
       console.log(`[Loaded ${profileUpdateRequests.length} profile update requests from Firestore]`);
     }
 
-    const annSnapshot = await getDocs(collection(db, 'announcements'));
+    const annSnapshot = await loadAll('announcements');
     const loadedAnnouncements: any[] = [];
-    annSnapshot.forEach(doc => {
-      loadedAnnouncements.push({ id: doc.id, ...doc.data() });
+    annSnapshot.forEach(docSnap => {
+      loadedAnnouncements.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedAnnouncements.length > 0) {
       announcementsStore = loadedAnnouncements;
       console.log(`[Loaded ${announcementsStore.length} announcements from Firestore]`);
     }
 
-    const annPresetsSnapshot = await getDocs(collection(db, 'announcement_presets'));
+    const annPresetsSnapshot = await loadAll('announcement_presets');
     const loadedPresets: any[] = [];
-    annPresetsSnapshot.forEach(doc => {
-      loadedPresets.push({ id: doc.id, ...doc.data() });
+    annPresetsSnapshot.forEach(docSnap => {
+      loadedPresets.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedPresets.length > 0) {
       announcementPresetsStore = loadedPresets;
@@ -647,67 +682,65 @@ async function loadPersistedData() {
       console.log(`[Seeding Firestore with ${announcementPresetsStore.length} default announcement presets]`);
       for (const preset of announcementPresetsStore) {
         try {
-          await setDoc(doc(db, 'announcement_presets', preset.id), preset);
+          await saveDoc('announcement_presets', preset.id, preset, false);
         } catch (err) {
           console.error(`Error seeding announcement preset ${preset.id} to Firestore:`, err);
         }
       }
     }
 
-    const minSnapshot = await getDocs(collection(db, 'meeting_minutes'));
+    const minSnapshot = await loadAll('meeting_minutes');
     const loadedMinutes: any[] = [];
-    minSnapshot.forEach(doc => {
-      loadedMinutes.push({ id: doc.id, ...doc.data() });
+    minSnapshot.forEach(docSnap => {
+      loadedMinutes.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedMinutes.length > 0) {
       meetingMinutesStore = loadedMinutes;
       console.log(`[Loaded ${meetingMinutesStore.length} meeting minutes from Firestore]`);
     }
 
-    const logbookSnapshot = await getDocs(collection(db, 'logbook_entries'));
+    const logbookSnapshot = await loadAll('logbook_entries');
     const loadedLogbook: any[] = [];
-    logbookSnapshot.forEach(doc => {
-      loadedLogbook.push({ id: doc.id, ...doc.data() });
+    logbookSnapshot.forEach(docSnap => {
+      loadedLogbook.push({ id: docSnap.id, ...docSnap.data() });
     });
     if (loadedLogbook.length > 0) {
       logbookStore = loadedLogbook;
       console.log(`[Loaded ${logbookStore.length} log book entries from Firestore]`);
     }
 
-    const polMetaDoc = await getDoc(doc(db, 'settings', 'policy_meta'));
+    const polMetaDoc = await loadOne('settings', 'policy_meta');
     const isOfficialSynced = polMetaDoc.exists() && polMetaDoc.data()?.policyVersion === '2023-12-18-official';
 
     if (!isOfficialSynced) {
-      // Seed official 22-section Arabiyya Rover Crew Policy into Firestore
       console.log(`[Seeding official 22-section Arabiyya Rover Crew Policy into Firestore]`);
-      
-      // Delete any outdated placeholder policy docs
-      const polSnapshot = await getDocs(collection(db, 'policies'));
-      for (const d of polSnapshot.docs) {
-        await deleteDoc(doc(db, 'policies', d.id));
+
+      const polSnapshot = await loadAll('policies');
+      for (const d of polSnapshot) {
+        await removeDoc('policies', d.id);
       }
 
       policiesStore = [...INITIAL_ROVER_POLICY];
       for (const pol of policiesStore) {
-        await setDoc(doc(db, 'policies', pol.id), pol);
+        await saveDoc('policies', pol.id, pol, false);
       }
-      await setDoc(doc(db, 'settings', 'policy_meta'), { initialized: true, policyVersion: '2023-12-18-official' });
+      await saveDoc('settings', 'policy_meta', { initialized: true, policyVersion: '2023-12-18-official' }, false);
       console.log(`[Successfully seeded ${policiesStore.length} official policy clauses]`);
     } else {
-      const polSnapshot = await getDocs(collection(db, 'policies'));
+      const polSnapshot = await loadAll('policies');
       const loadedPolicies: any[] = [];
-      polSnapshot.forEach(doc => {
-        loadedPolicies.push({ id: doc.id, ...doc.data() });
+      polSnapshot.forEach(docSnap => {
+        loadedPolicies.push({ id: docSnap.id, ...docSnap.data() });
       });
       policiesStore = sortPolicyItems(loadedPolicies);
       console.log(`[Loaded ${policiesStore.length} policies from Firestore]`);
     }
 
     let hasTelegramDoc = false;
-    const settingsDoc = await getDocs(collection(db, 'settings'));
-    settingsDoc.forEach(doc => {
-      if (doc.id === 'system') {
-        const data = doc.data();
+    const settingsDoc = await loadAll('settings');
+    settingsDoc.forEach(docSnap => {
+      if (docSnap.id === 'system') {
+        const data = docSnap.data();
         if (data.leader_notification_emails) systemSettings.leader_notification_emails = data.leader_notification_emails;
         if (data.rover_notification_emails) systemSettings.rover_notification_emails = data.rover_notification_emails;
         if (data.event_types) systemSettings.event_types = data.event_types;
@@ -743,9 +776,9 @@ async function loadPersistedData() {
           systemSettings.admin_roles = data.admin_roles;
         }
         console.log(`[Loaded system settings from Firestore]`);
-      } else if (doc.id === 'telegram') {
+      } else if (docSnap.id === 'telegram') {
         hasTelegramDoc = true;
-        const data = doc.data();
+        const data = docSnap.data();
         updateTelegramConfig({
           bot_token: data.bot_token || process.env.TELEGRAM_BOT_TOKEN || '',
           chat_id: data.chat_id || '@arabiyyarovers',
@@ -757,7 +790,7 @@ async function loadPersistedData() {
       }
     });
 
-    if (!hasTelegramDoc && db) {
+    if (!hasTelegramDoc && firestoreReady()) {
       const defaultTelegram = {
         bot_token: process.env.TELEGRAM_BOT_TOKEN || '',
         chat_id: '@arabiyyarovers',
@@ -766,28 +799,25 @@ async function loadPersistedData() {
         announcement_chat_id: ''
       };
       updateTelegramConfig(defaultTelegram);
-      await setDoc(doc(db, 'settings', 'telegram'), defaultTelegram);
+      await saveDoc('settings', 'telegram', defaultTelegram, false);
       console.log(`[Initialized default Telegram settings in Firestore]`);
     }
 
-    // Start background Telegram update polling
     startTelegramPolling();
   } catch (err) {
     console.error('[Error loading persisted data from Firestore]:', err);
   }
+  }
+  ensureBuiltinAdminRecord();
 }
 
-// Load persisted data on server startup
-loadPersistedData();
-
-// OTP Store for Application Tracking and Password Recovery
 const otpsStore = new Map<string, { otp: string; expiresAt: number; idCard: string; email: string }>();
 
 const dbOtpsStore = {
   set: async (key: string, data: { otp: string; expiresAt: number; idCard: string; email: string }) => {
-    if (db) {
+    if (firestoreReady()) {
       try {
-        await setDoc(doc(db, 'otps', key), cleanFirestoreData(data));
+        await saveDoc('otps', key, cleanFirestoreData(data), false);
       } catch (err) {
         console.error(`[dbOtpsStore Error saving OTP ${key}]:`, err);
       }
@@ -795,9 +825,9 @@ const dbOtpsStore = {
     otpsStore.set(key, data);
   },
   get: async (key: string): Promise<{ otp: string; expiresAt: number; idCard: string; email: string } | null> => {
-    if (db) {
+    if (firestoreReady()) {
       try {
-        const otpDoc = await getDoc(doc(db, 'otps', key));
+        const otpDoc = await loadOne('otps', key);
         if (otpDoc.exists()) {
           return otpDoc.data() as any;
         }
@@ -808,9 +838,9 @@ const dbOtpsStore = {
     return otpsStore.get(key) || null;
   },
   delete: async (key: string) => {
-    if (db) {
+    if (firestoreReady()) {
       try {
-        await deleteDoc(doc(db, 'otps', key));
+        await removeDoc('otps', key);
       } catch (err) {
         console.error(`[dbOtpsStore Error deleting OTP ${key}]:`, err);
       }
@@ -818,6 +848,9 @@ const dbOtpsStore = {
     otpsStore.delete(key);
   }
 };
+
+const invitationsStore = new Map<string, { email: string; expiresAt: string; used: boolean; createdAt: string }>();
+
 
 // API Routes
 
@@ -890,7 +923,7 @@ app.post('/api/signup/verify-dob', (req, res) => {
 });
 
 // Member Sign-Up (Explorers & Rovers)
-app.post('/api/signup/member', (req, res) => {
+app.post('/api/signup/member', async (req, res) => {
   const data = req.body;
   
   if (!data.idCardNumber || !data.username || !data.fullName || !data.email) {
@@ -938,11 +971,31 @@ app.post('/api/signup/member', (req, res) => {
     return res.status(400).json({ error: `An account with this ${duplicateField} already exists.` });
   }
 
+  const plainPassword = typeof data.password === 'string' && data.password
+    ? data.password
+    : (typeof data.passwordHash === 'string' ? data.passwordHash : '');
+  delete data.password;
+  delete data.passwordHash;
+  delete data.isAdmin;
+  delete data.status;
+  delete data.role;
+  delete data.id;
+
+  const usernameError = signupUsernameError(String(data.username || ''), privilegedUsernames());
+  if (usernameError) {
+    return res.status(400).json({ error: usernameError });
+  }
+
+  const ageInfo = calculateAgeAndRole(String(data.dob || ''));
   const newApp = {
     id: `mem-${Date.now().toString().slice(-6)}`,
     ...data,
-    status: (data.email === 'nazihnafiz@gmail.com' || data.email === 'it@arabiyyascouts.org') ? 'Active' : 'Pending Verification',
-    investitureDate: (data.email === 'nazihnafiz@gmail.com' || data.email === 'it@arabiyyascouts.org') ? new Date().toISOString().split('T')[0] : undefined,
+    ...(plainPassword ? { passwordHash: await ensurePasswordHash(String(plainPassword)) } : {}),
+    role: ageInfo.role,
+    ageYears: ageInfo.years,
+    ageMonths: ageInfo.months,
+    ageDays: ageInfo.days,
+    status: 'Pending Verification',
     createdAt: new Date().toISOString()
   };
 
@@ -1030,9 +1083,11 @@ app.post('/api/signup/check-availability', (req, res) => {
 
   if (username) {
     const norm = username.toLowerCase().trim();
+    const reserved = signupUsernameError(norm, privilegedUsernames());
     const exists = checkMember(m => (m.username || '').toLowerCase().trim() === norm);
-    results.username = !exists;
-    if (exists) errors.username = 'Username already in use.';
+    results.username = !exists && !reserved;
+    if (reserved) errors.username = reserved;
+    else if (exists) errors.username = 'Username already in use.';
   }
 
   return res.json({ available: results, errors });
@@ -1107,9 +1162,8 @@ app.post('/api/auth/login', async (req, res) => {
 
   const queryInput = (username || '').trim().toLowerCase();
   const queryPass = (password || '').trim();
-  const queryPassLower = queryPass.toLowerCase();
 
-  console.log(`[Login Attempt] Username/ID/Email: "${queryInput}", Password Length: ${queryPass.length}`);
+  console.log(`[Login Attempt] Username/ID/Email: "${queryInput}"`);
 
   const adminIdentifiers = [
     'admin',
@@ -1127,54 +1181,56 @@ app.post('/api/auth/login', async (req, res) => {
 
   const isAdminUser = adminIdentifiers.includes(queryInput);
 
-  const isValidAdminPass = queryPassLower === 'admin123' || 
-                            queryPassLower === '123' || 
-                            queryPassLower === 'admin' || 
-                            (ADMIN_USER.passwordHash && queryPass === ADMIN_USER.passwordHash) ||
-                            (ADMIN_USER.password && queryPass === ADMIN_USER.password);
+  const adminCheck = await checkPassword(ADMIN_USER.passwordHash, queryPass);
+  const isValidAdminPass = adminCheck === 'hashed' || adminCheck === 'legacy';
 
   // Absolute immediate connection for admin accounts
   if (isAdminUser && isValidAdminPass) {
+    if (adminCheck === 'legacy') {
+      await upgradeStoredPassword(ADMIN_USER, queryPass);
+    }
     console.log(`[Login Success] Admin user authenticated: "${queryInput}"`);
+    const adminSessionUser = {
+      id: ADMIN_USER.id || 'admin-001',
+      username: ADMIN_USER.username || 'admin',
+      fullName: ADMIN_USER.fullName || 'Ahmed Nazih Nafiz',
+      commonName: ADMIN_USER.commonName || 'Ahmed',
+      role: 'Secretary',
+      idCardNumber: ADMIN_USER.idCardNumber || 'A000000',
+      email: ADMIN_USER.email || 'it@arabiyyascouts.org',
+      status: 'Investiture',
+      investitureDate: '2020-01-01',
+      awardGoal: 'Baden-Powell Award',
+      awardIntent: false,
+      currentLevel: 'President Scout Award Holder',
+      isAdmin: true
+    };
     return res.json({
       success: true,
-      user: {
-        id: ADMIN_USER.id || 'admin-001',
-        username: ADMIN_USER.username || 'admin',
-        fullName: ADMIN_USER.fullName || 'Ahmed Nazih Nafiz',
-        commonName: ADMIN_USER.commonName || 'Ahmed',
-        role: 'Secretary',
-        idCardNumber: ADMIN_USER.idCardNumber || 'A000000',
-        email: ADMIN_USER.email || 'it@arabiyyascouts.org',
-        status: 'Investiture',
-        investitureDate: '2020-01-01',
-        awardGoal: 'Baden-Powell Award',
-        awardIntent: false,
-        currentLevel: 'President Scout Award Holder'
-      }
+      token: issueSessionToken(adminSessionUser),
+      user: adminSessionUser
     });
   }
 
-  // Check member with standard username matching, allowing ID Card or Email flexibly
-  const member = memberApplications.find(m => {
+  // Check member with standard username matching, allowing ID Card or Email flexibly.
+  // A legacy plaintext passwordHash is accepted once, then replaced with scrypt.
+  let member: any = null;
+  for (const m of memberApplications) {
     const uName = (m.username || '').toLowerCase();
     const idCard = (m.idCardNumber || '').toLowerCase();
     const email = (m.email || '').toLowerCase();
-    
-    // Allow login via custom username, registered ID card number, or email address
     const matchesId = uName === queryInput || idCard === queryInput || email === queryInput;
-    
-    // Support phone number without country code as initial password for bulk imported members
-    const normInputPassword = queryPass.replace(/\D/g, '');
-    const normMemberPhone = (m.phoneNumber || m.mobileNumber || '').replace(/\D/g, '');
-    const normMemberPhoneNoCc = normMemberPhone.startsWith('960') && normMemberPhone.length >= 10 ? normMemberPhone.slice(3) : normMemberPhone;
-    
-    const matchesPassword = m.passwordHash === queryPass || 
-                            (queryPass === 'password' && !m.passwordHash) ||
-                            (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc);
-                            
-    return matchesId && matchesPassword;
-  });
+    if (!matchesId) continue;
+
+    const phone = m.passwordHash ? null : (m.phoneNumber || m.mobileNumber || '');
+    const result = await checkPassword(m.passwordHash, queryPass, phone);
+    if (result === 'miss') continue;
+    if (result === 'legacy' || result === 'phone') {
+      await upgradeStoredPassword(m, queryPass);
+    }
+    member = m;
+    break;
+  }
 
   if (!member) {
     console.warn(`[Login Failed] No match found for user: "${queryInput}"`);
@@ -1202,38 +1258,42 @@ app.post('/api/auth/login', async (req, res) => {
 
   console.log(`[Login Success] Member user authenticated: "${queryInput}" (id: ${member.id})`);
 
+  const memberSessionUser = {
+    id: member.id,
+    username: member.username || member.idCardNumber,
+    fullName: member.fullName,
+    commonName: member.commonName || member.fullName,
+    role: member.role,
+    idCardNumber: member.idCardNumber,
+    email: member.email,
+    mobileNumber: member.mobileNumber || member.phoneNumber,
+    phoneNumber: member.phoneNumber || member.mobileNumber,
+    whatsappNumber: member.whatsappNumber || member.mobileNumber,
+    permanentAddress: member.permanentAddress,
+    currentAddress: member.currentAddress,
+    dob: member.dob,
+    ageYears: member.ageYears,
+    status: member.status,
+    investitureDate: member.investitureDate || new Date().toISOString().split('T')[0],
+    awardGoal: member.awardGoal,
+    awardIntent: member.awardIntent,
+    currentLevel: member.currentLevel,
+    emergencyContactName: member.emergencyContactName,
+    emergencyContactPhone: member.emergencyContactPhone,
+    instagramTag: member.instagramTag,
+    telegramTag: member.telegramTag,
+    isAdmin: isUserAdminOrSecretary(member.username, member.email, member.id, member.role) || undefined
+  };
+
   return res.json({
     success: true,
-    user: {
-      id: member.id,
-      username: member.username || member.idCardNumber,
-      fullName: member.fullName,
-      commonName: member.commonName || member.fullName,
-      role: member.role,
-      idCardNumber: member.idCardNumber,
-      email: member.email,
-      mobileNumber: member.mobileNumber || member.phoneNumber,
-      phoneNumber: member.phoneNumber || member.mobileNumber,
-      whatsappNumber: member.whatsappNumber || member.mobileNumber,
-      permanentAddress: member.permanentAddress,
-      currentAddress: member.currentAddress,
-      dob: member.dob,
-      ageYears: member.ageYears,
-      status: member.status,
-      investitureDate: member.investitureDate || new Date().toISOString().split('T')[0],
-      awardGoal: member.awardGoal,
-      awardIntent: member.awardIntent,
-      currentLevel: member.currentLevel,
-      emergencyContactName: member.emergencyContactName,
-      emergencyContactPhone: member.emergencyContactPhone,
-      instagramTag: member.instagramTag,
-      telegramTag: member.telegramTag
-    }
+    token: issueSessionToken(memberSessionUser),
+    user: memberSessionUser
   });
 });
 
 // Setup First-Time login details for bulk-imported members
-app.post('/api/auth/setup-first-time', (req, res) => {
+app.post('/api/auth/setup-first-time', async (req, res) => {
   const { idCardNumber, newUsername, newPassword, email, mobileNumber, permanentAddress, currentAddress } = req.body;
 
   if (!idCardNumber || !newUsername || !newPassword) {
@@ -1256,6 +1316,18 @@ app.post('/api/auth/setup-first-time', (req, res) => {
     return res.status(404).json({ error: 'No bulk-imported member record found with this ID Card Number.' });
   }
 
+  if (member.passwordHash) {
+    return res.status(403).json({ error: 'This account already has a password. Use Forgot Password to change it.' });
+  }
+
+  const storedPhone = String(member.phoneNumber || member.mobileNumber || '').replace(/\D/g, '');
+  const storedPhoneNoCc = storedPhone.startsWith('960') && storedPhone.length >= 10 ? storedPhone.slice(3) : storedPhone;
+  const providedPhone = String(req.body.verificationPhone || '').replace(/\D/g, '');
+  const providedPhoneNoCc = providedPhone.startsWith('960') && providedPhone.length >= 10 ? providedPhone.slice(3) : providedPhone;
+  if (!storedPhoneNoCc || providedPhoneNoCc !== storedPhoneNoCc) {
+    return res.status(403).json({ error: 'Enter the mobile number already on this membership record before setting a password.' });
+  }
+
   // Check username availability among OTHER members
   const usernameTaken = memberApplications.some(
     m => m.id !== member.id && (m.username || '').toLowerCase() === cleanUsername
@@ -1266,7 +1338,7 @@ app.post('/api/auth/setup-first-time', (req, res) => {
 
   // Set username and password
   member.username = cleanUsername;
-  member.passwordHash = newPassword;
+  member.passwordHash = await hashPassword(newPassword);
 
   // Fill in other optional details if not already provided
   if (email && (!member.email || member.email.includes('@arabiyya.edu.mv'))) {
@@ -1384,14 +1456,14 @@ app.post('/api/track/otp', async (req, res) => {
     purpose: 'tracking'
   });
 
-  const telegramTagDisplay = member.telegramTag ? `@${member.telegramTag.replace(/^@/, '')}` : undefined;
-  const mobileNumberDisplay = member.mobileNumber || member.phoneNumber;
+  const telegramTagDisplay = maskContact(member.telegramTag ? `@${String(member.telegramTag).replace(/^@/, '')}` : undefined);
+  const mobileNumberDisplay = maskContact(member.mobileNumber || member.phoneNumber);
 
   return res.json({
     success: true,
     message: tgResult.message || `OTP sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
-    dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
+    dispatchedTo: maskContact(tgResult.dispatchedTo) || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
     mobileNumber: mobileNumberDisplay,
     simulated: tgResult.simulated,
@@ -1423,7 +1495,8 @@ app.post('/api/telegram/check-start', async (req, res) => {
   }
 
   const result = await checkTelegramStart(resolvedTag, resolvedMobile, idCardNumber, purpose);
-  return res.json(result);
+  const { chatId: _chatId, ...safeResult } = result;
+  return res.json(safeResult);
 });
 
 
@@ -1493,14 +1566,14 @@ app.post('/api/auth/forgot-password/otp', async (req, res) => {
     purpose: 'password-reset'
   });
 
-  const telegramTagDisplay = member.telegramTag ? `@${member.telegramTag.replace(/^@/, '')}` : undefined;
-  const mobileNumberDisplay = member.mobileNumber || member.phoneNumber;
+  const telegramTagDisplay = maskContact(member.telegramTag ? `@${String(member.telegramTag).replace(/^@/, '')}` : undefined);
+  const mobileNumberDisplay = maskContact(member.mobileNumber || member.phoneNumber);
 
   return res.json({
     success: true,
     message: tgResult.message || `Password reset verification code sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
-    dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
+    dispatchedTo: maskContact(tgResult.dispatchedTo) || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
     mobileNumber: mobileNumberDisplay,
     simulated: tgResult.simulated,
@@ -1532,10 +1605,10 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
     return res.status(404).json({ error: 'User account not found.' });
   }
 
-  member.passwordHash = newPassword;
+  member.passwordHash = await hashPassword(newPassword);
   persistMember(member);
-  if (member.id === 'admin-001' || member.username === 'admin') {
-    Object.assign(ADMIN_USER, member);
+  if (member.id === 'admin-001') {
+    ADMIN_USER.passwordHash = member.passwordHash;
   }
   await dbOtpsStore.delete(key);
 
@@ -1545,14 +1618,10 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
   });
 });
 
-// Events API
-app.get('/api/events', (req, res) => {
-  const isSecretary = req.query.isSecretary === 'true' || req.query.isAdmin === 'true';
+function runScheduledMaintenance() {
   const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
-
-  // Check if any voluntary suspensions have expired and automatically reactivate membership
   const todayDateStr = now.toISOString().slice(0, 10);
+
   for (const m of memberApplications) {
     if ((m.status === 'Suspended' || m.status === 'Voluntary Suspension') && m.suspensionEndDate && m.suspensionEndDate <= todayDateStr) {
       m.status = 'Approved';
@@ -1570,20 +1639,15 @@ app.get('/api/events', (req, res) => {
     }
   }
 
-  // Check if any scheduled events reached Publish Date and send automated notification
   for (const evt of eventsStore) {
     const pubDate = evt.publishDateTime || evt.triggerDateTime;
-    // Account for client-side local timezone offsets (e.g., Maldives UTC+5):
-    // If publishDateTime is within 24h of now or already passed, it is considered reached.
-    const pubTime = pubDate ? new Date(pubDate).getTime() : 0;
-    const isPastOrNow = pubDate ? (pubTime <= now.getTime() + (24 * 60 * 60 * 1000) || pubDate <= nowStr) : true;
-    if (isPastOrNow && !evt.emailNotified) {
+    if (publishTimeReached(pubDate, now.getTime()) && !evt.emailNotified) {
       evt.emailNotified = true;
       evt.isPublished = true;
       persistEvent(evt);
 
       if (evt.notificationType === 'Telegram') {
-        const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+        const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
         broadcastToTelegram({
           title: `[NEW EVENT] ${evt.name}`,
           message: `📢 Official Crew Event Notice\n\nEvent: ${evt.name}\n📍 Location: ${evt.location}\n📅 From: ${evt.fromDateTime.replace('T', ' ')}\n⏳ To: ${evt.toDateTime.replace('T', ' ')}\n\n${evt.description || ''}`,
@@ -1602,6 +1666,12 @@ app.get('/api/events', (req, res) => {
       }
     }
   }
+}
+
+// Events API
+app.get('/api/events', (req, res) => {
+  const isSecretary = Boolean(currentSession(req)?.isSecretary);
+  const now = new Date();
 
   if (isSecretary) {
     return res.json(eventsStore);
@@ -1610,29 +1680,7 @@ app.get('/api/events', (req, res) => {
   // Published events for regular members:
   // All published events (past, ongoing, and upcoming) are visible.
   // Only future unpublished scheduled drafts (set days in advance and not yet published) are hidden.
-  const publishedEvents = eventsStore.filter(evt => {
-    // Explicit draft check
-    if (evt.status === 'Draft' || evt.isDraft === true) {
-      return false;
-    }
-
-    // If marked published, notified, or has no future publish date, it is visible
-    if (evt.isPublished || evt.emailNotified || evt.notified) {
-      return true;
-    }
-
-    const pubDate = evt.publishDateTime || evt.triggerDateTime || evt.fromDateTime;
-    if (!pubDate) return true;
-
-    // Timezone safe check:
-    // Allow up to 24 hours of local-to-server timezone skew so an event published
-    // in local time (e.g. Asia/Maldives UTC+5) is immediately visible without waiting 5 hours.
-    const pubTime = new Date(pubDate).getTime();
-    if (isNaN(pubTime)) return true;
-
-    const isPublished = pubTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || pubDate <= nowStr;
-    return isPublished;
-  });
+  const publishedEvents = eventsStore.filter(evt => memberCanSeeEvent(evt, now.getTime()));
 
   return res.json(publishedEvents);
 });
@@ -1716,10 +1764,7 @@ app.post('/api/events', (req, res) => {
   }
 
   const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
-  const finalTime = new Date(finalPublishDate).getTime();
-  // Timezone-safe check: within 24h of now is considered published immediately
-  const isAlreadyPublished = !isNaN(finalTime) ? (finalTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || finalPublishDate <= nowStr) : true;
+  const isAlreadyPublished = publishTimeReached(finalPublishDate, now.getTime());
 
   const newEvent = {
     id: `evt-${Date.now().toString().slice(-6)}`,
@@ -1746,7 +1791,7 @@ app.post('/api/events', (req, res) => {
 
   // If created as already published, notify members via selected channel immediately
   if (isAlreadyPublished) {
-    const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+    const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
     const targetMembers = resolveEventTargetMembers(newEvent);
     const memberEmails = targetMembers.map(m => m.email).filter(Boolean);
     const memberPhones = targetMembers.map(m => m.mobileNumber || m.phoneNumber).filter(Boolean);
@@ -1793,10 +1838,8 @@ app.put('/api/events/:id', async (req, res) => {
   const oldEvent = eventsStore[eventIndex];
   const finalPublishDate = publishDateTime || triggerDateTime || oldEvent.publishDateTime;
   const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
-  const finalTime = new Date(finalPublishDate).getTime();
-  const isNowPublished = !isNaN(finalTime) ? (finalTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || finalPublishDate <= nowStr) : true;
-  const wasBeforePublish = oldEvent.publishDateTime ? (new Date(oldEvent.publishDateTime).getTime() > now.getTime() && oldEvent.publishDateTime > nowStr) : false;
+  const isNowPublished = publishTimeReached(finalPublishDate, now.getTime());
+  const wasBeforePublish = oldEvent.publishDateTime ? !publishTimeReached(oldEvent.publishDateTime, now.getTime()) : false;
 
   const updatedEvent = {
     ...oldEvent,
@@ -1821,7 +1864,7 @@ app.put('/api/events/:id', async (req, res) => {
   persistEvent(updatedEvent);
 
   const shouldNotify = notifyMembers !== false;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   if (shouldNotify && isNowPublished) {
     const targets = resolveEventTargetMembers(updatedEvent);
@@ -1866,6 +1909,11 @@ app.post('/api/events/:id/signup', async (req, res) => {
 
   if (!memberId) {
     return res.status(400).json({ error: 'memberId is required to sign up for an event.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only sign yourself up for an event.' });
   }
 
   const eventIndex = eventsStore.findIndex(e => e.id === id);
@@ -1925,7 +1973,7 @@ app.post('/api/events/:id/notify', async (req, res) => {
   }
 
   const selectedChannel = channel || event.notificationType || 'Email';
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const locationRequirementNote = event.requiredCities && event.requiredCities.length > 0
     ? `\n📍 Location Requirement: Members residing in ${event.requiredCities.join(', ')} are required to attend (others welcome to join optionally).`
@@ -2336,13 +2384,14 @@ app.delete('/api/announcements/presets/:id', (req, res) => {
 
 // Attendance API
 app.get('/api/attendance', (req, res) => {
-  const { memberId, isSecretary } = req.query;
+  const session = currentSession(req);
+  const memberId = req.query.memberId as string | undefined;
 
-  if (isSecretary === 'true') {
+  if (session?.isSecretary) {
     return res.json(attendanceStore);
   }
 
-  if (memberId) {
+  if (memberId && session && (memberId === session.id)) {
     const userAttendance = attendanceStore.filter(a => a.memberId === memberId);
     return res.json(userAttendance);
   }
@@ -2355,6 +2404,11 @@ app.post('/api/attendance/excuse', (req, res) => {
 
   if (!eventId || !memberId || !excuseReason) {
     return res.status(400).json({ error: 'Event ID, Member ID, and excuse reason are required.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only submit an excuse for your own attendance.' });
   }
 
   const existingIndex = attendanceStore.findIndex(a => a.eventId === eventId && a.memberId === memberId);
@@ -2489,10 +2543,10 @@ app.post('/api/meeting-minutes', (req, res) => {
     eventName: event ? event.name : 'Group Meeting',
     eventDate: event ? (event.fromDateTime ? event.fromDateTime.split('T')[0] : new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
     title,
-    agenda: agenda || '',
-    discussionPoints: discussionPoints || '',
-    resolutions: resolutions || '',
-    actionItems: actionItems || '',
+    agenda: sanitizeHtml(agenda || ''),
+    discussionPoints: sanitizeHtml(discussionPoints || ''),
+    resolutions: sanitizeHtml(resolutions || ''),
+    actionItems: sanitizeHtml(actionItems || ''),
     nextMeetingDate: nextMeetingDate || '',
     publishedBy: publishedBy || systemSettings.secretary_name || 'Secretary of Arabiyya Rover Network',
     publishedAt: new Date().toISOString(),
@@ -2524,10 +2578,13 @@ app.delete('/api/meeting-minutes/:id', (req, res) => {
 // Log Book API Endpoints
 // ==========================================
 app.get('/api/logbook', (req, res) => {
-  const { memberId, category, status, search, role } = req.query;
+  const session = currentSession(req);
+  const { memberId, category, status, search } = req.query;
   let results = [...logbookStore];
 
-  if (memberId && typeof memberId === 'string') {
+  if (!session?.isSecretary) {
+    results = results.filter(entry => entry.memberId === session?.id);
+  } else if (memberId && typeof memberId === 'string') {
     results = results.filter(entry => entry.memberId === memberId);
   }
 
@@ -2557,9 +2614,12 @@ app.get('/api/logbook', (req, res) => {
 });
 
 app.get('/api/logbook/stats', (req, res) => {
+  const session = currentSession(req);
   const { memberId } = req.query;
   let entries = [...logbookStore];
-  if (memberId && typeof memberId === 'string') {
+  if (!session?.isSecretary) {
+    entries = entries.filter(e => e.memberId === session?.id);
+  } else if (memberId && typeof memberId === 'string') {
     entries = entries.filter(e => e.memberId === memberId);
   }
 
@@ -2615,9 +2675,16 @@ app.post('/api/logbook', (req, res) => {
     return res.status(400).json({ error: 'Title, category, and date are required.' });
   }
 
+  const session = currentSession(req);
+  const ownerId = session?.isSecretary ? (memberId || session.id) : session?.id;
+  if (!ownerId) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  const entryStatus = !session?.isSecretary && status === 'Verified' ? 'Pending Review' : (status || 'Pending Review');
+
   const newEntry = {
     id: `log-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 6)}`,
-    memberId: memberId || 'unknown',
+    memberId: ownerId,
     memberName: memberName || 'Scout Member',
     memberRole: memberRole || 'Rover',
     title: title.trim(),
@@ -2632,7 +2699,7 @@ app.post('/api/logbook', (req, res) => {
     description: (description || '').trim(),
     learningPoints: (learningPoints || '').trim(),
     photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
-    status: status || 'Pending Review',
+    status: entryStatus,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -2655,11 +2722,16 @@ app.put('/api/logbook/:id', (req, res) => {
   }
 
   const existing = logbookStore[index];
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', existing.memberId)) {
+    return res.status(403).json({ error: 'You can only edit your own log book entry.' });
+  }
   const updated = {
     ...existing,
     ...req.body,
     id: existing.id,
     memberId: existing.memberId, // retain ownership
+    status: !session?.isSecretary && req.body?.status === 'Verified' ? existing.status : (req.body?.status || existing.status),
     updatedAt: new Date().toISOString()
   };
 
@@ -2678,6 +2750,11 @@ app.delete('/api/logbook/:id', (req, res) => {
   const index = logbookStore.findIndex(e => e.id === id);
   if (index === -1) {
     return res.status(404).json({ error: 'Log book entry not found.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', logbookStore[index].memberId)) {
+    return res.status(403).json({ error: 'You can only delete your own log book entry.' });
   }
 
   logbookStore.splice(index, 1);
@@ -2743,19 +2820,6 @@ function findMemberRecord(idCardNumber?: string, memberId?: string, username?: s
     return ADMIN_USER;
   }
 
-  // 3. Fallback: if not found, create a record so updates and lookups always succeed
-  if (normIdCard || normMemId) {
-    const newRecord: any = {
-      id: normMemId || `mem-${Date.now()}`,
-      idCardNumber: idCardNumber || 'A000000',
-      fullName: 'Member',
-      status: 'Investiture',
-      role: 'Rover'
-    };
-    memberApplications.push(newRecord);
-    return newRecord;
-  }
-
   return null;
 }
 
@@ -2770,8 +2834,12 @@ app.get('/api/members/profile', (req, res) => {
     return res.status(404).json({ error: 'Member profile not found.' });
   }
 
-  const { passwordHash, ...safeMember } = member;
-  return res.json(safeMember);
+  const session = currentSession(req);
+  if (!session?.isSecretary && member.id !== session?.id && String(member.username || '').toLowerCase() !== String(session?.username || '').toLowerCase()) {
+    return res.status(403).json({ error: 'You can only view your own profile.' });
+  }
+
+  return res.json(withoutSecrets(member));
 });
 
 app.get('/api/profile/:idCard', (req, res) => {
@@ -2782,11 +2850,18 @@ app.get('/api/profile/:idCard', (req, res) => {
     return res.status(404).json({ error: 'Member not found.' });
   }
 
-  const { passwordHash, ...safeMember } = member;
-  return res.json(safeMember);
+  const session = currentSession(req);
+  const ownsRecord = member.id === session?.id
+    || String(member.username || '').toLowerCase() === String(session?.username || '').toLowerCase()
+    || String(member.idCardNumber || '').toLowerCase() === String(session?.username || '').toLowerCase();
+  if (!session?.isSecretary && !ownsRecord) {
+    return res.status(403).json({ error: 'You can only view your own profile.' });
+  }
+
+  return res.json(withoutSecrets(member));
 });
 
-app.put('/api/profile/update', (req, res) => {
+app.put('/api/profile/update', async (req, res) => {
   const { idCardNumber, memberId, updates } = req.body;
 
   if (!idCardNumber && !memberId && !updates?.idCardNumber) {
@@ -2799,10 +2874,53 @@ app.put('/api/profile/update', (req, res) => {
     return res.status(404).json({ error: 'Member profile record not found.' });
   }
 
+  const session = currentSession(req);
+  const isSelf = Boolean(session && (
+    session.id === member.id ||
+    (session.username && member.username && session.username.toLowerCase() === String(member.username).toLowerCase()) ||
+    (session.email && member.email && session.email.toLowerCase() === String(member.email).toLowerCase())
+  ));
+  if (!session?.isSecretary && !isSelf) {
+    return res.status(403).json({ error: 'You can only update your own profile.' });
+  }
+  if (!session?.isSecretary && updates) {
+    delete updates.role;
+    delete updates.status;
+    delete updates.isAdmin;
+    delete updates.passwordHash;
+    delete updates.idCardNumber;
+  }
+
+  if (updates) {
+    const identityError = identityChangeError({
+      actorIsSecretary: Boolean(session?.isSecretary),
+      memberId: String(member.id || ''),
+      currentUsername: member.username,
+      currentEmail: member.email,
+      nextUsername: updates.username !== undefined ? String(updates.username) : undefined,
+      nextEmail: updates.email !== undefined ? String(updates.email) : undefined,
+      otherUsernames: memberApplications.filter(m => m.id !== member.id).map(m => String(m.username || '')),
+      otherEmails: memberApplications.filter(m => m.id !== member.id).map(m => String(m.email || '')),
+      privilegedUsernames: privilegedUsernames()
+    });
+    if (identityError) {
+      return res.status(400).json({ error: identityError });
+    }
+  }
+
   const oldStatus = member.status;
 
   // Update profile fields in memory store
   if (updates) {
+    if (updates.username !== undefined && String(updates.username).trim()) {
+      member.username = String(updates.username).trim().toLowerCase();
+    }
+    if (updates.password !== undefined && String(updates.password).length > 0) {
+      member.passwordHash = await hashPassword(String(updates.password));
+      if (member.id === 'admin-001') {
+        ADMIN_USER.passwordHash = member.passwordHash;
+      }
+    }
     if (updates.fullName !== undefined) member.fullName = updates.fullName;
     if (updates.commonName !== undefined) member.commonName = updates.commonName;
     if (updates.idCardNumber !== undefined) member.idCardNumber = updates.idCardNumber;
@@ -2853,8 +2971,8 @@ app.put('/api/profile/update', (req, res) => {
     }
   }
 
-  // If this member was ADMIN_USER, also sync back
-  if (member.id === 'admin-001' || member.username === 'admin') {
+  // Keep the built-in secretary record in sync. A renamed member must not replace it.
+  if (member.id === 'admin-001') {
     Object.assign(ADMIN_USER, member);
     if (member.role === 'Secretary' || ADMIN_USER.role === 'Secretary') {
       systemSettings.secretary_name = member.fullName || ADMIN_USER.fullName;
@@ -2868,10 +2986,9 @@ app.put('/api/profile/update', (req, res) => {
     sendWelcomeEmailIfNeeded(member, oldStatus, member.status);
   }
 
-  const { passwordHash, ...safeMember } = member;
   return res.json({ 
     success: true, 
-    member: safeMember, 
+    member: withoutSecrets(member), 
     message: 'Profile updated and synchronized successfully across the member directory.' 
   });
 });
@@ -2881,6 +2998,11 @@ app.post('/api/profile/update-request', (req, res) => {
 
   if (!memberId || !requestedChanges) {
     return res.status(400).json({ error: 'Missing required update request parameters.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only request an update for your own profile.' });
   }
 
   const newReq = {
@@ -2901,9 +3023,11 @@ app.post('/api/profile/update-request', (req, res) => {
 
 // Members Directory API (Excludes Leaders, Secretary & Admin accounts, and returns all members of any status)
 app.get('/api/members', (req, res) => {
+  const session = currentSession(req);
   const membersOnly = memberApplications
     .filter(m => m.role !== 'Leader' && m.role !== 'Secretary' && m.role !== 'Admin')
-    .map(({ passwordHash, ...m }) => m);
+    .filter(m => visibleInMemberDirectory(m.status, Boolean(session?.isSecretary)))
+    .map(m => withoutSecrets(m));
 
   return res.json(membersOnly);
 });
@@ -2949,9 +3073,9 @@ app.post('/api/policies', async (req, res) => {
 
   policiesStore.push(newItem);
 
-  if (db) {
+  if (firestoreReady()) {
     try {
-      await setDoc(doc(db, 'policies', newItem.id), newItem);
+      await saveDoc('policies', newItem.id, newItem, false);
     } catch (err) {
       console.error('Error saving policy to Firestore:', err);
     }
@@ -2998,9 +3122,9 @@ app.put('/api/policies/:id', async (req, res) => {
 
   policiesStore[index] = updatedItem;
 
-  if (db) {
+  if (firestoreReady()) {
     try {
-      await setDoc(doc(db, 'policies', current.id), updatedItem);
+      await saveDoc('policies', current.id, updatedItem, false);
     } catch (err) {
       console.error('Error updating policy in Firestore:', err);
     }
@@ -3028,15 +3152,15 @@ app.delete('/api/policies/:id', async (req, res) => {
   const itemToDelete = policiesStore.find(p => p.id === id || p.number === id);
   policiesStore = policiesStore.filter(p => p.id !== id && p.number !== id);
 
-  if (db) {
+  if (firestoreReady()) {
     try {
       if (itemToDelete?.id) {
-        await deleteDoc(doc(db, 'policies', itemToDelete.id));
+        await removeDoc('policies', itemToDelete.id);
       }
       if (id && (!itemToDelete || itemToDelete.id !== id)) {
-        await deleteDoc(doc(db, 'policies', id));
+        await removeDoc('policies', id);
       }
-      await setDoc(doc(db, 'settings', 'policy_meta'), { initialized: true });
+      await saveDoc('settings', 'policy_meta', { initialized: true });
     } catch (err) {
       console.error('Error deleting policy from Firestore:', err);
     }
@@ -3120,7 +3244,7 @@ app.get('/api/admin/requests', (req, res) => {
 
   return res.json({
     leaderApplications,
-    memberApplications,
+    memberApplications: memberApplications.map(m => withoutSecrets(m)),
     profileUpdateRequests,
     attendanceExcuses: attendanceStore.filter(a => a.status === 'Unable To Attend')
   });
@@ -3132,16 +3256,19 @@ app.post('/api/invite', async (req, res) => {
 
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
+  const inviteRecord = {
+    email,
+    expiresAt: expiresAt.toISOString(),
+    used: false,
+    createdAt: new Date().toISOString()
+  };
 
   try {
-    await setDoc(doc(db, 'invitations', token), {
-      email,
-      expiresAt: expiresAt.toISOString(),
-      used: false,
-      createdAt: serverTimestamp()
-    });
+    invitationsStore.set(token, inviteRecord);
+    await saveDoc('invitations', token, inviteRecord, false);
 
-    const inviteLink = `${process.env.APP_URL || 'https://arabiyya.scouts.mv'}/join?token=${token}`;
+    const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
+    const inviteLink = `${appUrl}/join?token=${token}`;
     await sendInviteEmail(email, inviteLink);
 
     res.json({ success: true });
@@ -3154,12 +3281,13 @@ app.post('/api/invite', async (req, res) => {
 app.get('/api/verify-invite/:token', async (req, res) => {
   const { token } = req.params;
   try {
-    const docRef = doc(db, 'invitations', token);
-    const docSnap = await getDoc(docRef);
+    let data = invitationsStore.get(token);
+    if (!data && firestoreReady()) {
+      const docSnap = await loadOne('invitations', token);
+      if (docSnap.exists()) data = docSnap.data();
+    }
 
-    if (!docSnap.exists()) return res.status(404).json({ error: 'Invalid token.' });
-
-    const data = docSnap.data();
+    if (!data) return res.status(404).json({ error: 'Invalid token.' });
     if (data.used) return res.status(400).json({ error: 'Token already used.' });
     if (new Date(data.expiresAt) < new Date()) return res.status(400).json({ error: 'Token expired.' });
 
@@ -3290,11 +3418,15 @@ function extractRowValue(row: Record<string, any>, ...candidateKeys: string[]): 
 }
 
 // Admin: Create Single Member
-app.post('/api/admin/members/create', (req, res) => {
-  const data = req.body;
+app.post('/api/admin/members/create', async (req, res) => {
+  const data = { ...(req.body || {}) };
   if (!data.fullName || !data.idCardNumber) {
     return res.status(400).json({ error: 'Full Name and ID Card Number are required.' });
   }
+
+  const plainPassword = memberPasswordInput(data);
+  delete data.password;
+  delete data.passwordHash;
 
   const username = data.username || data.fullName.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(100 + Math.random() * 900);
 
@@ -3329,8 +3461,17 @@ app.post('/api/admin/members/create', (req, res) => {
       overallAttendanceWithExcused: data.overallAttendanceWithExcused || existing.overallAttendanceWithExcused,
       updatedAt: new Date().toISOString()
     });
-    persistMember(existing);
-    return res.json({ success: true, member: existing, synced: true, message: 'Member profile successfully updated and synchronized.' });
+    if (plainPassword) {
+      existing.passwordHash = await ensurePasswordHash(plainPassword);
+      delete existing.password;
+    }
+    await persistMember(existing);
+    return res.json({ success: true, member: withoutSecrets(existing), synced: true, message: 'Member profile successfully updated and synchronized.' });
+  }
+
+  const usernameError = signupUsernameError(String(username), privilegedUsernames());
+  if (usernameError) {
+    return res.status(400).json({ error: usernameError });
   }
 
   const { years, months, days, role } = calculateAgeAndRole(data.dob);
@@ -3358,10 +3499,14 @@ app.post('/api/admin/members/create', (req, res) => {
     overallAttendanceWithExcused: data.overallAttendanceWithExcused || '0%',
     createdAt: new Date().toISOString()
   };
+  if (plainPassword) {
+    newMem.passwordHash = await ensurePasswordHash(plainPassword);
+  }
+  delete newMem.password;
 
   memberApplications.push(newMem);
-  persistMember(newMem);
-  return res.status(201).json({ success: true, member: newMem });
+  await persistMember(newMem);
+  return res.status(201).json({ success: true, member: withoutSecrets(newMem) });
 });
 
 // Admin: Update Single Member details individually (Secretary)
@@ -3374,6 +3519,21 @@ app.post('/api/admin/members/update/:id', async (req, res) => {
   }
 
   const existing = memberApplications[index];
+
+  const identityError = identityChangeError({
+    actorIsSecretary: true,
+    memberId: String(existing.id || ''),
+    currentUsername: existing.username,
+    currentEmail: existing.email,
+    nextUsername: updates.username !== undefined ? String(updates.username) : undefined,
+    nextEmail: updates.email !== undefined ? String(updates.email) : undefined,
+    otherUsernames: memberApplications.filter(m => m.id !== existing.id).map(m => String(m.username || '')),
+    otherEmails: memberApplications.filter(m => m.id !== existing.id).map(m => String(m.email || '')),
+    privilegedUsernames: privilegedUsernames()
+  });
+  if (identityError) {
+    return res.status(400).json({ error: identityError });
+  }
   
   const allowedFields = [
     'fullName', 'commonName', 'username', 'idCardNumber', 'dob', 'gender', 'role',
@@ -3400,13 +3560,14 @@ app.post('/api/admin/members/update/:id', async (req, res) => {
   }
 
   existing.updatedAt = new Date().toISOString();
+  delete existing.password;
   await persistMember(existing);
 
-  return res.json({ success: true, member: existing, message: 'Member profile details successfully updated.' });
+  return res.json({ success: true, member: withoutSecrets(existing), message: 'Member profile details successfully updated.' });
 });
 
 // Admin: Bulk Create & Sync Members from CSV / TSV / JSON rows
-app.post('/api/admin/members/bulk-create', (req, res) => {
+app.post('/api/admin/members/bulk-create', async (req, res) => {
   const { members, syncExisting = true } = req.body;
   if (!Array.isArray(members) || members.length === 0) {
     return res.status(400).json({ error: 'No members data provided for bulk import or sync.' });
@@ -3553,7 +3714,7 @@ app.post('/api/admin/members/bulk-create', (req, res) => {
       fullName: fullName.trim(),
       commonName: commonName.trim() || fullName.trim().split(' ')[0],
       username: cleanUsername,
-      passwordHash: extractRowValue(rawRow, 'password', 'Password') || 'scout123',
+      passwordHash: await ensurePasswordHash(extractRowValue(rawRow, 'password', 'Password') || 'scout123'),
       idCardNumber: cleanId,
       dob: dob,
       ageYears: years,
@@ -3680,8 +3841,8 @@ app.post('/api/sso/authenticate', async (req, res) => {
   const headerApiKey = req.headers['x-sso-api-key'] || (req.headers['authorization'] || '').replace('Bearer ', '');
   const providedApiKey = apiKey || headerApiKey;
 
-  const masterKey = systemSettings.sso_api_key || 'arabiyya_sso_hwbg36jf97n16gwuzp1hk';
-  if (providedApiKey && providedApiKey !== masterKey && providedApiKey !== 'arabiyya_sso_hwbg36jf97n16gwuzp1hk') {
+  const masterKey = systemSettings.sso_api_key;
+  if (!masterKey || !providedApiKey || providedApiKey !== masterKey) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Invalid Master SSO API Key.' });
   }
 
@@ -3695,7 +3856,12 @@ app.post('/api/sso/authenticate', async (req, res) => {
                       queryInput === 'a000000' || 
                       queryInput === 'it@arabiyyascouts.org' ||
                       queryInput === 'nazihnafiz@gmail.com';
-  if (isDocAdmin && (password === ADMIN_USER.passwordHash || password === 'admin123' || password === 'password')) {
+  const passwordText = String(password || '').trim();
+  const adminCheck = await checkPassword(ADMIN_USER.passwordHash, passwordText);
+  if (isDocAdmin && (adminCheck === 'hashed' || adminCheck === 'legacy')) {
+    if (adminCheck === 'legacy') {
+      await upgradeStoredPassword(ADMIN_USER, passwordText);
+    }
     return res.json({
       success: true,
       token: `sso_token_${Date.now()}_${Math.random().toString(36).substring(2)}`,
@@ -3718,34 +3884,25 @@ app.post('/api/sso/authenticate', async (req, res) => {
   }
 
   // Check Member with standard username matching, allowing ID Card ONLY for first-time sign-in
-  const member = memberApplications.find(m => {
+  let member: any = null;
+  for (const m of memberApplications) {
     const uName = (m.username || '').toLowerCase();
     const idCard = (m.idCardNumber || '').toLowerCase();
-    
-    // Determine if the member has already set up custom credentials
     const hasSetCustomCreds = !!(m.passwordHash && m.username && m.username !== m.idCardNumber);
-    
-    let matchesId = false;
-    if (hasSetCustomCreds) {
-      // Must use their configured custom username
-      matchesId = uName === queryInput;
-    } else {
-      // First-time login: allow ID Card or username
-      matchesId = idCard === queryInput || uName === queryInput;
+    const matchesId = hasSetCustomCreds
+      ? uName === queryInput
+      : (idCard === queryInput || uName === queryInput);
+    if (!matchesId) continue;
+
+    const phone = m.passwordHash ? null : (m.phoneNumber || m.mobileNumber || '');
+    const result = await checkPassword(m.passwordHash, passwordText, phone);
+    if (result === 'miss') continue;
+    if (result === 'legacy' || result === 'phone') {
+      await upgradeStoredPassword(m, passwordText);
     }
-    
-    // Support phone number without country code as initial password for bulk imported members
-    const normInputPassword = (password || '').trim().replace(/\D/g, '');
-    const normMemberPhone = (m.phoneNumber || m.mobileNumber || '').replace(/\D/g, '');
-    const normMemberPhoneNoCc = normMemberPhone.startsWith('960') && normMemberPhone.length >= 10 ? normMemberPhone.slice(3) : normMemberPhone;
-    
-    const matchesPassword = m.passwordHash === password || 
-                            password === 'password' || 
-                            (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc) ||
-                            (password === 'admin123' && isUserAdminOrSecretary(m.username, m.email, m.id, m.role));
-                            
-    return matchesId && matchesPassword;
-  });
+    member = m;
+    break;
+  }
 
   if (!member) {
     return res.status(401).json({ success: false, error: 'Invalid username or password.' });
@@ -3840,15 +3997,20 @@ app.get('/api/admin/telegram', (req, res) => {
   const config = getTelegramConfig();
   return res.json({
     configured: Boolean(config.bot_token),
-    config
+    config: {
+      ...config,
+      bot_token: config.bot_token ? '••••••••••••' : ''
+    }
   });
 });
 
 app.put('/api/admin/telegram', async (req, res) => {
   const { bot_token, chat_id, channel_username, enabled, announcement_chat_id } = req.body || {};
+  const existing = getTelegramConfig();
+  const nextToken = (!bot_token || bot_token === '••••••••••••') ? existing.bot_token : bot_token;
   
   const updated = {
-    bot_token: bot_token || '',
+    bot_token: nextToken || '',
     chat_id: chat_id || '@arabiyyarovers',
     channel_username: channel_username || '@arabiyyascoutsbot',
     enabled: enabled !== undefined ? Boolean(enabled) : false,
@@ -3858,13 +4020,17 @@ app.put('/api/admin/telegram', async (req, res) => {
   updateTelegramConfig(updated);
 
   try {
-    if (db) {
-      await setDoc(doc(db, 'settings', 'telegram'), updated, { merge: true });
+    if (firestoreReady()) {
+      await saveDoc('settings', 'telegram', updated, true);
     }
+    const saved = getTelegramConfig();
     return res.json({
       success: true,
       message: 'Telegram settings updated and persisted successfully.',
-      config: getTelegramConfig()
+      config: {
+        ...saved,
+        bot_token: saved.bot_token ? '••••••••••••' : ''
+      }
     });
   } catch (error: any) {
     console.error('[Error persisting telegram settings to Firestore]:', error);
@@ -3919,18 +4085,17 @@ app.get('/api/admin/server-status', (req, res) => {
     serverTime: new Date().toISOString(),
     nodeVersion: process.version,
     environment: process.env.NODE_ENV || 'production',
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     platform: process.platform,
     memory: memMb,
     urls: {
-      devUrl: 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app',
-      sharedUrl: 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app',
-      localUrl: 'http://localhost:3000'
+      appUrl: (process.env.APP_URL || '').replace(/\/$/, ''),
+      localUrl: `http://localhost:${Number(process.env.PORT) || 3000}`
     },
     firebase: {
-      configured: Boolean(db || adminDb),
-      status: adminDb ? 'Connected (Admin SDK)' : (db ? 'Connected (Client SDK)' : 'In-Memory Fallback'),
-      projectId: configuredFirebaseProjectId,
+      configured: firestoreReady(),
+      status: firestoreReady() ? 'Connected (Admin SDK)' : 'In-Memory Fallback',
+      projectId: getFirebaseAdminStatus().projectId || configuredFirebaseProjectId,
       databaseId: '(default)',
       collections: {
         members: memberApplications.length,
@@ -3949,14 +4114,13 @@ app.get('/api/admin/server-status', (req, res) => {
 });
 
 app.post('/api/admin/server/ping-firebase', async (req, res) => {
-  if (!db) {
-    return res.status(503).json({ success: false, message: 'Firestore is not initialized on the server.' });
+  if (!firestoreReady()) {
+    return res.status(503).json({ success: false, message: 'Firestore Admin SDK is not configured. Set FIREBASE_SERVICE_ACCOUNT. See README.md.' });
   }
   try {
-    const pingRef = doc(db, 'settings', 'server_ping');
     const nowIso = new Date().toISOString();
-    await setDoc(pingRef, { lastPing: nowIso, status: 'healthy', source: 'server' }, { merge: true });
-    const snap = await getDoc(pingRef);
+    await saveDoc('settings', 'server_ping', { lastPing: nowIso, status: 'healthy', source: 'server' }, true);
+    const snap = await loadOne('settings', 'server_ping');
     return res.json({
       success: true,
       message: 'Successfully connected and verified read/write capability to Firestore database.',
@@ -3970,8 +4134,8 @@ app.post('/api/admin/server/ping-firebase', async (req, res) => {
 });
 
 app.post('/api/admin/server/sync-firebase', async (req, res) => {
-  if (!db) {
-    return res.status(503).json({ success: false, message: 'Firestore is not initialized on the server.' });
+  if (!firestoreReady()) {
+    return res.status(503).json({ success: false, message: 'Firestore Admin SDK is not configured. Set FIREBASE_SERVICE_ACCOUNT. See README.md.' });
   }
   try {
     let syncedCount = 0;
@@ -4097,7 +4261,15 @@ async function start() {
 
   // Infrastructure constraint: Port 3000 is hardcoded for the nginx reverse proxy
   // both in local development and production container deployments.
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  await Promise.race([
+    loadPersistedData(),
+    new Promise(resolve => setTimeout(resolve, 8000))
+  ]);
+  runScheduledMaintenance();
+  const maintenanceTimer = setInterval(runScheduledMaintenance, 60 * 1000);
+  if (typeof maintenanceTimer.unref === 'function') maintenanceTimer.unref();
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Arabiyya Rovers Server listening on port ${PORT} [mode: ${isProduction ? 'production' : 'development'}]`);

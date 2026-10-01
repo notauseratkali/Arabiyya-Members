@@ -100,7 +100,7 @@ function getPath(): string {
 }
 
 function AppContent() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isSecretary } = useAuth();
   const [splashActive, setSplashActive] = useState(true);
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const p = getPath();
@@ -254,25 +254,22 @@ function AppContent() {
       case '/finance':
         return <FinancePage onNavigate={navigate} />;
       case '/syllabus':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+      case '/admin/syllabus':
+        return isSecretary
           ? <SyllabusPage onNavigate={navigate} /> 
           : <NotFoundPage onNavigate={navigate} />;
       case '/requests':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
+      case '/admin':
+      case '/admin/requests':
+        return isSecretary
           ? <RequestsPage onNavigate={navigate} /> 
           : <NotFoundPage onNavigate={navigate} />;
       case '/announcements':
         return <AnnouncementsPage onNavigate={navigate} />;
       case '/settings':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
-          ? <SettingsPage onNavigate={navigate} /> 
-          : <NotFoundPage onNavigate={navigate} />;
-      case '/admin':
-      case '/admin/requests':
       case '/admin/settings':
-      case '/admin/syllabus':
-        return ((user.role === 'Admin' || user.role === 'Secretary') || user.isAdmin === true) 
-          ? <RequestsPage onNavigate={navigate} /> 
+        return isSecretary
+          ? <SettingsPage onNavigate={navigate} /> 
           : <NotFoundPage onNavigate={navigate} />;
       default:
         return <NotFoundPage onNavigate={navigate} />;

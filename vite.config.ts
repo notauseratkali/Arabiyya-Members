@@ -34,31 +34,18 @@ export default defineConfig(() => {
     },
     build: {
       outDir: 'dist',
-      emptyOutDir: false,
+      emptyOutDir: true,
       chunkSizeWarningLimit: 3000,
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom')) {
-                return 'vendor-react';
-              }
-              if (id.includes('firebase')) {
-                return 'vendor-firebase';
-              }
-              if (id.includes('lucide-react')) {
-                return 'vendor-icons';
-              }
-              if (id.includes('motion')) {
-                return 'vendor-motion';
-              }
-              if (id.includes('jspdf') || id.includes('xlsx')) {
-                return 'vendor-utils';
-              }
-              return 'vendor-core';
-            }
-            if (id.includes('/src/pages/')) {
-              const pageName = id.split('/src/pages/')[1].split('.')[0].toLowerCase();
+            const norm = id.replace(/\\/g, '/');
+            const inPkg = (name: string) => norm.includes(`/node_modules/${name}/`);
+            if (inPkg('firebase') || inPkg('@firebase')) return 'vendor-firebase';
+            if (inPkg('lucide-react')) return 'vendor-icons';
+            if (inPkg('jspdf') || inPkg('jspdf-autotable') || inPkg('exceljs')) return 'vendor-utils';
+            if (norm.includes('/src/pages/')) {
+              const pageName = norm.split('/src/pages/')[1].split('.')[0].toLowerCase();
               return `page-${pageName}`;
             }
           },

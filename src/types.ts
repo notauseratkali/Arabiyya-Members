@@ -247,8 +247,8 @@ export interface AuthUser {
   emergencyName?: string;
   emergencyRelationship?: string;
   emergencyNumber?: string;
-  suspensionReason?: string;
-  suspensionEndDate?: string;
+  suspensionReason?: string | null;
+  suspensionEndDate?: string | null;
   term?: string;
   resignationDate?: string;
   overallAttendanceWithoutExcused?: string | number;

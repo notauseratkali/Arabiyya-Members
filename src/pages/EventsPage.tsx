@@ -31,8 +31,7 @@ const getNowLocalDateTime = (): string => {
 };
 
 export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +117,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
   };
 
   const loadSettings = () => {
-    fetch('/api/admin/settings')
+    fetch('/api/settings')
       .then(res => res.json())
       .then(data => {
         if (data.event_types) setEventTypes(data.event_types);
@@ -338,7 +337,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
 
     const isSignedUp = Boolean(
       Array.isArray(evt.signedUpMembers) &&
-      userMemberIds.some(id => evt.signedUpMembers.includes(id))
+      userMemberIds.some(id => (evt.signedUpMembers || []).includes(id))
     );
     setConfirmSignUpModal({ event: evt, isSignedUp });
   };
@@ -619,7 +618,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
             const isUserSignedUp = Boolean(
               user &&
               Array.isArray(evt.signedUpMembers) &&
-              userMemberIds.some(id => evt.signedUpMembers.includes(id))
+              userMemberIds.some(id => (evt.signedUpMembers || []).includes(id))
             );
 
             return (

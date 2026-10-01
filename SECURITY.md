@@ -1,21 +1,19 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Security fixes are applied to the code on the default branch of this repository (Arabiyya Members). There are no separately numbered release lines.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please report security issues privately. Do not open a public GitHub issue for a suspected vulnerability.
 
-Use this section to tell people how to report a vulnerability.
+1. Open a [private security advisory](https://github.com/notauseratkali/Arabiyya-Members/security/advisories/new) on this repository.
+2. Include what you found, how to reproduce it, and the impact you expect.
+3. The maintainer will reply on that advisory. There is no fixed response window.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+If you cannot use GitHub advisories, you can also write to the council address already published in the app: it@arabiyyascouts.org. Do not include live member passwords or exported personal data in the email.
+
+## What this app stores
+
+Member records, password hashes, one-time codes, and server settings are meant to be reachable only through the API process (Firebase Admin SDK). Browser clients must not be able to read `otps`, `member_applications`, `settings`, or password fields. See `firestore.rules` and `README.md` for the deploy steps that make that true in production.

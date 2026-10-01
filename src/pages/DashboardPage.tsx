@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../utils/safeStorage';
+import { countPendingRequests } from '../utils/requestCounts';
 import { calculateTimeRemainingForAward } from '../utils/awardTimeline';
 import { formatDateDDMMMYYYY, formatDateTimeDDMMMYYYY } from '../utils/dateUtils';
 import { 
@@ -26,7 +27,7 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
+  const { user, isSecretary } = useAuth();
   const [events, setEvents] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -51,8 +52,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   });
 
   const [activePromiseTab, setActivePromiseTab] = useState<'promise' | 'laws' | 'motto'>('promise');
-
-  const isSecretary = user?.role === 'Secretary';
 
   const toggleDuty = (key: string) => {
     const updated = { ...dailyDuties, [key]: !dailyDuties[key] };
@@ -100,10 +99,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       fetch('/api/admin/requests')
         .then(res => res.json())
         .then(data => {
-          const joinCount = Array.isArray(data?.joinRequests) ? data.joinRequests.filter((r: any) => r && (r.status === 'Pending Review' || r.status === 'Interview' || r.status === 'Investiture' || r.status === 'Processing' || r.status === 'Interview & Investiture')).length : 0;
-          const profileCount = Array.isArray(data?.profileRequests) ? data.profileRequests.filter((r: any) => r && r.status === 'Pending').length : 0;
-          const absenceCount = Array.isArray(data?.absenceExcuses) ? data.absenceExcuses.filter((r: any) => r && r.excuseStatus === 'Pending Review').length : 0;
-          setPendingRequestsCount(joinCount + profileCount + absenceCount);
+          setPendingRequestsCount(countPendingRequests(data));
         })
         .catch(() => {});
     }
