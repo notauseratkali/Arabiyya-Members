@@ -53,7 +53,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [adminRoles, setAdminRoles] = useState<{ id: string; name: string; description: string; assignedUsernames: string[] }[]>([]);
 
   useEffect(() => {
-    if (!safeStorage.getItem('arabiyya_auth_token')) return;
+    const secretary = Boolean(user && (user.role === 'Secretary' || user.role === 'Admin' || user.isAdmin === true));
+    if (!secretary || !safeStorage.getItem('arabiyya_auth_token')) return;
     fetchWithRetry('/api/admin/settings')
       .then(res => res.json())
       .then(data => {
@@ -62,13 +63,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch(err => console.error('Failed to fetch admin roles:', err));
-  }, []);
+  }, [user]);
 
   const isSecretary = React.useMemo(() => {
     if (!user) return false;
     if (user.role === 'Secretary' || user.role === 'Admin' || user.isAdmin === true) return true;
-    if (user.email === 'it@arabiyyascouts.org' || user.email === 'admin@arabiyyarovers.net' || user.email === 'nazihnafiz@gmail.com') return true;
-    
+
     for (const role of adminRoles) {
       if (role.assignedUsernames && Array.isArray(role.assignedUsernames)) {
         const lowerAssigned = role.assignedUsernames.map(u => u.toLowerCase());
@@ -111,10 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (userSnapshot.exists()) {
             const data = userSnapshot.data() as AuthUser;
-            const isUserAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
-                                fbUser.email === 'admin@arabiyyarovers.net' || 
-                                fbUser.email === 'nazihnafiz@gmail.com' ||
-                                data.role === 'Admin' ||
+            const isUserAdmin = data.role === 'Admin' ||
                                 data.role === 'Secretary' ||
                                 data.isAdmin === true;
             if (isUserAdmin) {
@@ -137,22 +134,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(data);
             safeStorage.setItem('arabiyya_auth_user', JSON.stringify(data));
           } else {
-            const isAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
-                            fbUser.email === 'admin@arabiyyarovers.net' || 
-                            fbUser.email === 'nazihnafiz@gmail.com';
             const fallbackUser: AuthUser = {
               id: fbUser.uid,
               username: fbUser.email ? fbUser.email.split('@')[0] : 'scout_user',
-              fullName: isAdmin ? 'Ahmed Nazih Nafiz' : (fbUser.displayName || 'Arabiyya Scout Member'),
-              commonName: isAdmin ? 'Ahmed' : (fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Member'),
-              role: isAdmin ? 'Secretary' : 'Rover',
-              idCardNumber: isAdmin ? 'A000000' : '',
+              fullName: fbUser.displayName || 'Arabiyya Scout Member',
+              commonName: fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Member',
+              role: 'Rover',
+              idCardNumber: '',
               email: fbUser.email || '',
               status: 'Investiture',
               awardGoal: 'Baden-Powell Award',
               awardIntent: true,
-              currentLevel: 'Scout Standard',
-              isAdmin: isAdmin ? true : undefined
+              currentLevel: 'Scout Standard'
             };
 
             await setDoc(userDocRef, firestoreSafeUser(fallbackUser), { merge: true });
@@ -196,12 +189,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(prev => {
       if (!prev) return null;
       
-      const isCurrentlyAdmin = prev.role === 'Admin' || 
+      const isCurrentlyAdmin = prev.role === 'Admin' ||
                                prev.role === 'Secretary' ||
-                               prev.isAdmin === true ||
-                               prev.email === 'it@arabiyyascouts.org' || 
-                               prev.email === 'admin@arabiyyarovers.net' ||
-                               prev.email === 'nazihnafiz@gmail.com';
+                               prev.isAdmin === true;
 
       const merged: AuthUser = { ...prev, ...updatedFields };
 

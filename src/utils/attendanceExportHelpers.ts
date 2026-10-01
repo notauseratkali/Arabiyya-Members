@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import ExcelJS from 'exceljs';
+import { buildXlsxBuffer } from './xlsxWorkbook';
 import { formatDateDDMMMYYYY } from './dateUtils';
 import { EventItem, MemberApplication, AttendanceRecord, MeetingMinute } from '../types';
 import {
@@ -15,24 +15,7 @@ const sanitizeFilename = (str: string): string => {
 };
 
 async function downloadWorkbook(filename: string, sheets: { name: string; rows: Record<string, any>[] }[]) {
-  const workbook = new ExcelJS.Workbook();
-  for (const sheet of sheets) {
-    const worksheet = workbook.addWorksheet(sheet.name.slice(0, 31) || 'Sheet');
-    const rows = sheet.rows;
-    if (rows.length === 0) {
-      worksheet.addRow(['No rows']);
-      continue;
-    }
-    const headers = Object.keys(rows[0]);
-    worksheet.columns = headers.map((header) => ({
-      header,
-      key: header,
-      width: Math.min(42, Math.max(14, header.length + 2))
-    }));
-    for (const row of rows) worksheet.addRow(row);
-    worksheet.getRow(1).font = { bold: true };
-  }
-  const buffer = await workbook.xlsx.writeBuffer();
+  const buffer = await buildXlsxBuffer(sheets);
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

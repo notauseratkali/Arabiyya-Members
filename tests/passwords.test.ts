@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, checkPassword, isHashedPassword, ensurePasswordHash } from '../server/passwords.ts';
+import { hashPassword, checkPassword, isHashedPassword, ensurePasswordHash, memberPasswordInput } from '../server/passwords.ts';
 
 test('scrypt hashes round-trip and reject a wrong password', async () => {
   const stored = await hashPassword('correct horse');
@@ -20,6 +20,15 @@ test('phone fallback only applies when no password is stored', async () => {
   assert.equal(await checkPassword('', '7712345', '+960 7712345'), 'phone');
   assert.equal(await checkPassword('', '0000000', '+960 7712345'), 'miss');
   assert.equal(await checkPassword('scout123', '7712345', '+960 7712345'), 'miss');
+});
+
+test('member create accepts the password field the Add Member form sends', async () => {
+  assert.equal(memberPasswordInput({ password: 'scout123' }), 'scout123');
+  assert.equal(memberPasswordInput({ password: 'typed', passwordHash: 'old' }), 'typed');
+  const stored = await ensurePasswordHash(memberPasswordInput({ password: 'scout123' }));
+  assert.equal(isHashedPassword(stored), true);
+  assert.equal(await checkPassword(stored, 'scout123'), 'hashed');
+  assert.equal(await checkPassword(stored, '7712345', '+960 7712345'), 'miss');
 });
 
 test('ensurePasswordHash does not double-hash', async () => {

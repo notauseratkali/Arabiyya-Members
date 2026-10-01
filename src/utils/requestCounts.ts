@@ -1,11 +1,15 @@
-const PENDING_JOIN_STATUSES = new Set([
+export const PENDING_JOIN_STATUSES = new Set([
   'Pending Review',
+  'Pending Verification',
   'Interview',
-  'Investiture',
   'Processing',
   'Interview & Investiture',
   'Pending'
 ]);
+
+export function isPendingJoinStatus(status: unknown): boolean {
+  return typeof status === 'string' && PENDING_JOIN_STATUSES.has(status);
+}
 
 export function countPendingRequests(data: {
   memberApplications?: Array<{ status?: string } | null>;
@@ -16,7 +20,7 @@ export function countPendingRequests(data: {
   const profiles = Array.isArray(data?.profileUpdateRequests) ? data.profileUpdateRequests : [];
   const excuses = Array.isArray(data?.attendanceExcuses) ? data.attendanceExcuses : [];
 
-  const joinCount = members.filter(item => item && PENDING_JOIN_STATUSES.has(item.status || '')).length;
+  const joinCount = members.filter(item => item && isPendingJoinStatus(item.status)).length;
   const profileCount = profiles.filter(item => item && item.status === 'Pending').length;
   const absenceCount = excuses.filter(item => item && item.excuseStatus === 'Pending Review').length;
   return joinCount + profileCount + absenceCount;

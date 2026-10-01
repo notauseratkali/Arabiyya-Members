@@ -50,7 +50,13 @@ export function requiresSecretary(method: string, path: string): boolean {
   if (p.startsWith('/api/meeting-minutes') && m !== 'GET') return true;
   if (p.startsWith('/api/policies') && m !== 'GET') return true;
   if (p.startsWith('/api/members/') && m === 'DELETE') return true;
-  if (p.startsWith('/api/logbook') && (m === 'DELETE' || p.endsWith('/review'))) return true;
+  if (p.startsWith('/api/logbook') && p.endsWith('/review')) return true;
 
   return false;
+}
+
+/** Non-secretaries may only act on their own member id. */
+export function canActAsMember(isSecretary: boolean, sessionId: string, memberId: unknown): boolean {
+  if (isSecretary) return true;
+  return typeof memberId === 'string' && memberId.length > 0 && memberId === sessionId;
 }

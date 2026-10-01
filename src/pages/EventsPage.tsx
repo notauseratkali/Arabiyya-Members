@@ -117,7 +117,7 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
   };
 
   const loadSettings = () => {
-    fetch('/api/admin/settings')
+    fetch('/api/settings')
       .then(res => res.json())
       .then(data => {
         if (data.event_types) setEventTypes(data.event_types);

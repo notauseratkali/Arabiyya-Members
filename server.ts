@@ -35,8 +35,11 @@ import {
 import { INITIAL_ROVER_POLICY, sortPolicyItems, PolicyItem } from './src/data/policyData';
 import { getFirebaseAdminStatus } from './server/firebaseAdmin';
 import { firestoreReady, saveDoc, removeDoc, loadAll, loadOne } from './server/firestoreStore';
-import { hashPassword, checkPassword, ensurePasswordHash } from './server/passwords';
-import { isPublicApi, requiresSecretary } from './server/apiAccess';
+import { hashPassword, checkPassword, ensurePasswordHash, memberPasswordInput } from './server/passwords';
+import { isPublicApi, requiresSecretary, canActAsMember } from './server/apiAccess';
+import { publishTimeReached, memberCanSeeEvent } from './server/eventPublish';
+import { accountIsSecretary, identityChangeError, signupUsernameError, visibleInMemberDirectory } from './server/identity';
+import { maskContact } from './server/contactMask';
 import { sessionFromAuthHeader, signSession, SessionUser } from './server/session';
 import { sanitizeHtml } from './src/utils/sanitizeHtml';
 import fs from 'fs';
@@ -242,20 +245,24 @@ export let systemSettings = {
   ]
 };
 
-function isUserAdminOrSecretary(username?: string, email?: string, id?: string, role?: string): boolean {
-  if (role === 'Secretary' || role === 'Admin') return true;
-  if (username === 'admin' || email === 'it@arabiyyascouts.org' || email === 'admin@arabiyyarovers.net' || email === 'nazihnafiz@gmail.com') return true;
-  if (systemSettings.admin_roles && Array.isArray(systemSettings.admin_roles)) {
-    for (const r of systemSettings.admin_roles) {
-      if (r.assignedUsernames && Array.isArray(r.assignedUsernames)) {
-        const lowerAssigned = r.assignedUsernames.map(u => u.toLowerCase());
-        if (username && lowerAssigned.includes(username.toLowerCase())) return true;
-        if (email && lowerAssigned.includes(email.toLowerCase())) return true;
-        if (id && lowerAssigned.includes(id.toLowerCase())) return true;
-      }
+function privilegedUsernames(): string[] {
+  const names: string[] = [];
+  if (!systemSettings.admin_roles || !Array.isArray(systemSettings.admin_roles)) return names;
+  for (const role of systemSettings.admin_roles) {
+    for (const name of role.assignedUsernames || []) {
+      if (name) names.push(String(name));
     }
   }
-  return false;
+  return names;
+}
+
+function isUserAdminOrSecretary(username?: string, _email?: string, id?: string, role?: string): boolean {
+  return accountIsSecretary({
+    username,
+    id,
+    role,
+    privilegedUsernames: privilegedUsernames()
+  });
 }
 
 // Member Applications Store
@@ -556,21 +563,40 @@ async function removeLogBookEntry(id: string) {
 }
 
 async function upgradeStoredPassword(record: any, plain: string) {
-  const hashed = await hashPassword(plain);
+  const hashed = await hashPassword(plain.trim());
   record.passwordHash = hashed;
-  const isAdminRecord = record === ADMIN_USER || record.id === 'admin-001' || record.username === 'admin';
+  delete record.password;
+  const isAdminRecord = record === ADMIN_USER || record.id === 'admin-001';
   if (isAdminRecord) {
     ADMIN_USER.passwordHash = hashed;
-    const adminRecord = memberApplications.find((m) => m.id === 'admin-001' || m.username === 'admin');
-    if (adminRecord && adminRecord !== record) adminRecord.passwordHash = hashed;
-    persistMember(adminRecord || record);
+    const adminRecord = memberApplications.find((m) => m.id === 'admin-001');
+    if (adminRecord && adminRecord !== record) {
+      adminRecord.passwordHash = hashed;
+      delete adminRecord.password;
+    }
+    await persistMember(adminRecord || record);
     return;
   }
-  persistMember(record);
+  await persistMember(record);
+}
+
+function ensureBuiltinAdminRecord() {
+  const index = memberApplications.findIndex((m) => m.id === 'admin-001');
+  if (index === -1) {
+    memberApplications.unshift(ADMIN_USER);
+    return;
+  }
+  const existing = memberApplications[index];
+  if (existing === ADMIN_USER) return;
+  Object.assign(ADMIN_USER, existing);
+  if (process.env.ADMIN_PASSWORD) {
+    ADMIN_USER.passwordHash = process.env.ADMIN_PASSWORD;
+  }
+  memberApplications[index] = ADMIN_USER;
 }
 
 async function loadPersistedData() {
-  if (!firestoreReady()) return;
+  if (firestoreReady()) {
   try {
     const membersSnapshot = await loadAll('member_applications');
     const loadedMembers: any[] = [];
@@ -581,7 +607,8 @@ async function loadPersistedData() {
       memberApplications = loadedMembers;
       console.log(`[Loaded ${memberApplications.length} member applications from Firestore]`);
 
-      const foundAdmin = memberApplications.find(m => m.id === 'admin-001' || m.username === 'admin');
+      const foundAdmin = memberApplications.find(m => m.id === 'admin-001')
+        || memberApplications.find(m => m.username === 'admin' && (m.role === 'Secretary' || m.role === 'Admin'));
       if (foundAdmin) {
         Object.assign(ADMIN_USER, foundAdmin);
         if (process.env.ADMIN_PASSWORD) {
@@ -590,19 +617,6 @@ async function loadPersistedData() {
         console.log('[Synced ADMIN_USER from Firestore]');
       }
 
-      memberApplications.forEach(m => {
-        if ((m.email === 'nazihnafiz@gmail.com' || m.email === 'it@arabiyyascouts.org') && m.id !== 'admin-001') {
-          let changed = false;
-          if (m.status === 'Pending Review' || m.status === 'Pending') {
-            m.status = 'Investiture';
-            m.investitureDate = m.investitureDate || new Date().toISOString().split('T')[0];
-            changed = true;
-          }
-          if (changed) {
-            persistMember(m);
-          }
-        }
-      });
       cleanupExpiredResignations();
     }
 
@@ -793,6 +807,8 @@ async function loadPersistedData() {
   } catch (err) {
     console.error('[Error loading persisted data from Firestore]:', err);
   }
+  }
+  ensureBuiltinAdminRecord();
 }
 
 const otpsStore = new Map<string, { otp: string; expiresAt: number; idCard: string; email: string }>();
@@ -960,13 +976,26 @@ app.post('/api/signup/member', async (req, res) => {
     : (typeof data.passwordHash === 'string' ? data.passwordHash : '');
   delete data.password;
   delete data.passwordHash;
+  delete data.isAdmin;
+  delete data.status;
+  delete data.role;
+  delete data.id;
 
+  const usernameError = signupUsernameError(String(data.username || ''), privilegedUsernames());
+  if (usernameError) {
+    return res.status(400).json({ error: usernameError });
+  }
+
+  const ageInfo = calculateAgeAndRole(String(data.dob || ''));
   const newApp = {
     id: `mem-${Date.now().toString().slice(-6)}`,
     ...data,
     ...(plainPassword ? { passwordHash: await ensurePasswordHash(String(plainPassword)) } : {}),
-    status: (data.email === 'nazihnafiz@gmail.com' || data.email === 'it@arabiyyascouts.org') ? 'Active' : 'Pending Verification',
-    investitureDate: (data.email === 'nazihnafiz@gmail.com' || data.email === 'it@arabiyyascouts.org') ? new Date().toISOString().split('T')[0] : undefined,
+    role: ageInfo.role,
+    ageYears: ageInfo.years,
+    ageMonths: ageInfo.months,
+    ageDays: ageInfo.days,
+    status: 'Pending Verification',
     createdAt: new Date().toISOString()
   };
 
@@ -1054,9 +1083,11 @@ app.post('/api/signup/check-availability', (req, res) => {
 
   if (username) {
     const norm = username.toLowerCase().trim();
+    const reserved = signupUsernameError(norm, privilegedUsernames());
     const exists = checkMember(m => (m.username || '').toLowerCase().trim() === norm);
-    results.username = !exists;
-    if (exists) errors.username = 'Username already in use.';
+    results.username = !exists && !reserved;
+    if (reserved) errors.username = reserved;
+    else if (exists) errors.username = 'Username already in use.';
   }
 
   return res.json({ available: results, errors });
@@ -1425,14 +1456,14 @@ app.post('/api/track/otp', async (req, res) => {
     purpose: 'tracking'
   });
 
-  const telegramTagDisplay = member.telegramTag ? `@${member.telegramTag.replace(/^@/, '')}` : undefined;
-  const mobileNumberDisplay = member.mobileNumber || member.phoneNumber;
+  const telegramTagDisplay = maskContact(member.telegramTag ? `@${String(member.telegramTag).replace(/^@/, '')}` : undefined);
+  const mobileNumberDisplay = maskContact(member.mobileNumber || member.phoneNumber);
 
   return res.json({
     success: true,
     message: tgResult.message || `OTP sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
-    dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
+    dispatchedTo: maskContact(tgResult.dispatchedTo) || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
     mobileNumber: mobileNumberDisplay,
     simulated: tgResult.simulated,
@@ -1464,7 +1495,8 @@ app.post('/api/telegram/check-start', async (req, res) => {
   }
 
   const result = await checkTelegramStart(resolvedTag, resolvedMobile, idCardNumber, purpose);
-  return res.json(result);
+  const { chatId: _chatId, ...safeResult } = result;
+  return res.json(safeResult);
 });
 
 
@@ -1534,14 +1566,14 @@ app.post('/api/auth/forgot-password/otp', async (req, res) => {
     purpose: 'password-reset'
   });
 
-  const telegramTagDisplay = member.telegramTag ? `@${member.telegramTag.replace(/^@/, '')}` : undefined;
-  const mobileNumberDisplay = member.mobileNumber || member.phoneNumber;
+  const telegramTagDisplay = maskContact(member.telegramTag ? `@${String(member.telegramTag).replace(/^@/, '')}` : undefined);
+  const mobileNumberDisplay = maskContact(member.mobileNumber || member.phoneNumber);
 
   return res.json({
     success: true,
     message: tgResult.message || `Password reset verification code sent strictly to your private Telegram DM.`,
     channel: 'Telegram Bot',
-    dispatchedTo: tgResult.dispatchedTo || telegramTagDisplay || mobileNumberDisplay,
+    dispatchedTo: maskContact(tgResult.dispatchedTo) || telegramTagDisplay || mobileNumberDisplay,
     telegramTag: telegramTagDisplay,
     mobileNumber: mobileNumberDisplay,
     simulated: tgResult.simulated,
@@ -1575,7 +1607,7 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
 
   member.passwordHash = await hashPassword(newPassword);
   persistMember(member);
-  if (member.id === 'admin-001' || member.username === 'admin') {
+  if (member.id === 'admin-001') {
     ADMIN_USER.passwordHash = member.passwordHash;
   }
   await dbOtpsStore.delete(key);
@@ -1585,17 +1617,6 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
     message: 'Password successfully reset! You can now log in with your new password.'
   });
 });
-
-// Maldives is UTC+5. Datetime-local values are parsed as server-local time, so allow
-// a small skew instead of treating every event due in the next day as already published.
-const PUBLISH_TIME_SKEW_MS = 6 * 60 * 60 * 1000;
-
-function publishTimeReached(pubDate: string | undefined, nowMs: number): boolean {
-  if (!pubDate) return false;
-  const pubTime = new Date(pubDate).getTime();
-  if (isNaN(pubTime)) return false;
-  return pubTime <= nowMs + PUBLISH_TIME_SKEW_MS;
-}
 
 function runScheduledMaintenance() {
   const now = new Date();
@@ -1659,21 +1680,7 @@ app.get('/api/events', (req, res) => {
   // Published events for regular members:
   // All published events (past, ongoing, and upcoming) are visible.
   // Only future unpublished scheduled drafts (set days in advance and not yet published) are hidden.
-  const publishedEvents = eventsStore.filter(evt => {
-    // Explicit draft check
-    if (evt.status === 'Draft' || evt.isDraft === true) {
-      return false;
-    }
-
-    // If marked published, notified, or has no future publish date, it is visible
-    if (evt.isPublished || evt.emailNotified || evt.notified) {
-      return true;
-    }
-
-    const pubDate = evt.publishDateTime || evt.triggerDateTime || evt.fromDateTime;
-    if (!pubDate) return true;
-    return publishTimeReached(pubDate, now.getTime());
-  });
+  const publishedEvents = eventsStore.filter(evt => memberCanSeeEvent(evt, now.getTime()));
 
   return res.json(publishedEvents);
 });
@@ -1757,10 +1764,7 @@ app.post('/api/events', (req, res) => {
   }
 
   const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
-  const finalTime = new Date(finalPublishDate).getTime();
-  // Timezone-safe check: within 24h of now is considered published immediately
-  const isAlreadyPublished = !isNaN(finalTime) ? (finalTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || finalPublishDate <= nowStr) : true;
+  const isAlreadyPublished = publishTimeReached(finalPublishDate, now.getTime());
 
   const newEvent = {
     id: `evt-${Date.now().toString().slice(-6)}`,
@@ -1834,10 +1838,8 @@ app.put('/api/events/:id', async (req, res) => {
   const oldEvent = eventsStore[eventIndex];
   const finalPublishDate = publishDateTime || triggerDateTime || oldEvent.publishDateTime;
   const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
-  const finalTime = new Date(finalPublishDate).getTime();
-  const isNowPublished = !isNaN(finalTime) ? (finalTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || finalPublishDate <= nowStr) : true;
-  const wasBeforePublish = oldEvent.publishDateTime ? (new Date(oldEvent.publishDateTime).getTime() > now.getTime() && oldEvent.publishDateTime > nowStr) : false;
+  const isNowPublished = publishTimeReached(finalPublishDate, now.getTime());
+  const wasBeforePublish = oldEvent.publishDateTime ? !publishTimeReached(oldEvent.publishDateTime, now.getTime()) : false;
 
   const updatedEvent = {
     ...oldEvent,
@@ -1907,6 +1909,11 @@ app.post('/api/events/:id/signup', async (req, res) => {
 
   if (!memberId) {
     return res.status(400).json({ error: 'memberId is required to sign up for an event.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only sign yourself up for an event.' });
   }
 
   const eventIndex = eventsStore.findIndex(e => e.id === id);
@@ -2399,6 +2406,11 @@ app.post('/api/attendance/excuse', (req, res) => {
     return res.status(400).json({ error: 'Event ID, Member ID, and excuse reason are required.' });
   }
 
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only submit an excuse for your own attendance.' });
+  }
+
   const existingIndex = attendanceStore.findIndex(a => a.eventId === eventId && a.memberId === memberId);
 
   if (existingIndex >= 0 && attendanceStore[existingIndex].status === 'Attended') {
@@ -2566,10 +2578,13 @@ app.delete('/api/meeting-minutes/:id', (req, res) => {
 // Log Book API Endpoints
 // ==========================================
 app.get('/api/logbook', (req, res) => {
-  const { memberId, category, status, search, role } = req.query;
+  const session = currentSession(req);
+  const { memberId, category, status, search } = req.query;
   let results = [...logbookStore];
 
-  if (memberId && typeof memberId === 'string') {
+  if (!session?.isSecretary) {
+    results = results.filter(entry => entry.memberId === session?.id);
+  } else if (memberId && typeof memberId === 'string') {
     results = results.filter(entry => entry.memberId === memberId);
   }
 
@@ -2599,9 +2614,12 @@ app.get('/api/logbook', (req, res) => {
 });
 
 app.get('/api/logbook/stats', (req, res) => {
+  const session = currentSession(req);
   const { memberId } = req.query;
   let entries = [...logbookStore];
-  if (memberId && typeof memberId === 'string') {
+  if (!session?.isSecretary) {
+    entries = entries.filter(e => e.memberId === session?.id);
+  } else if (memberId && typeof memberId === 'string') {
     entries = entries.filter(e => e.memberId === memberId);
   }
 
@@ -2657,9 +2675,16 @@ app.post('/api/logbook', (req, res) => {
     return res.status(400).json({ error: 'Title, category, and date are required.' });
   }
 
+  const session = currentSession(req);
+  const ownerId = session?.isSecretary ? (memberId || session.id) : session?.id;
+  if (!ownerId) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  const entryStatus = !session?.isSecretary && status === 'Verified' ? 'Pending Review' : (status || 'Pending Review');
+
   const newEntry = {
     id: `log-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 6)}`,
-    memberId: memberId || 'unknown',
+    memberId: ownerId,
     memberName: memberName || 'Scout Member',
     memberRole: memberRole || 'Rover',
     title: title.trim(),
@@ -2674,7 +2699,7 @@ app.post('/api/logbook', (req, res) => {
     description: (description || '').trim(),
     learningPoints: (learningPoints || '').trim(),
     photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
-    status: status || 'Pending Review',
+    status: entryStatus,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -2697,11 +2722,16 @@ app.put('/api/logbook/:id', (req, res) => {
   }
 
   const existing = logbookStore[index];
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', existing.memberId)) {
+    return res.status(403).json({ error: 'You can only edit your own log book entry.' });
+  }
   const updated = {
     ...existing,
     ...req.body,
     id: existing.id,
     memberId: existing.memberId, // retain ownership
+    status: !session?.isSecretary && req.body?.status === 'Verified' ? existing.status : (req.body?.status || existing.status),
     updatedAt: new Date().toISOString()
   };
 
@@ -2720,6 +2750,11 @@ app.delete('/api/logbook/:id', (req, res) => {
   const index = logbookStore.findIndex(e => e.id === id);
   if (index === -1) {
     return res.status(404).json({ error: 'Log book entry not found.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', logbookStore[index].memberId)) {
+    return res.status(403).json({ error: 'You can only delete your own log book entry.' });
   }
 
   logbookStore.splice(index, 1);
@@ -2856,6 +2891,23 @@ app.put('/api/profile/update', async (req, res) => {
     delete updates.idCardNumber;
   }
 
+  if (updates) {
+    const identityError = identityChangeError({
+      actorIsSecretary: Boolean(session?.isSecretary),
+      memberId: String(member.id || ''),
+      currentUsername: member.username,
+      currentEmail: member.email,
+      nextUsername: updates.username !== undefined ? String(updates.username) : undefined,
+      nextEmail: updates.email !== undefined ? String(updates.email) : undefined,
+      otherUsernames: memberApplications.filter(m => m.id !== member.id).map(m => String(m.username || '')),
+      otherEmails: memberApplications.filter(m => m.id !== member.id).map(m => String(m.email || '')),
+      privilegedUsernames: privilegedUsernames()
+    });
+    if (identityError) {
+      return res.status(400).json({ error: identityError });
+    }
+  }
+
   const oldStatus = member.status;
 
   // Update profile fields in memory store
@@ -2865,7 +2917,7 @@ app.put('/api/profile/update', async (req, res) => {
     }
     if (updates.password !== undefined && String(updates.password).length > 0) {
       member.passwordHash = await hashPassword(String(updates.password));
-      if (member.id === 'admin-001' || member.username === 'admin') {
+      if (member.id === 'admin-001') {
         ADMIN_USER.passwordHash = member.passwordHash;
       }
     }
@@ -2919,8 +2971,8 @@ app.put('/api/profile/update', async (req, res) => {
     }
   }
 
-  // If this member was ADMIN_USER, also sync back
-  if (member.id === 'admin-001' || member.username === 'admin') {
+  // Keep the built-in secretary record in sync. A renamed member must not replace it.
+  if (member.id === 'admin-001') {
     Object.assign(ADMIN_USER, member);
     if (member.role === 'Secretary' || ADMIN_USER.role === 'Secretary') {
       systemSettings.secretary_name = member.fullName || ADMIN_USER.fullName;
@@ -2934,10 +2986,9 @@ app.put('/api/profile/update', async (req, res) => {
     sendWelcomeEmailIfNeeded(member, oldStatus, member.status);
   }
 
-  const { passwordHash, ...safeMember } = member;
   return res.json({ 
     success: true, 
-    member: safeMember, 
+    member: withoutSecrets(member), 
     message: 'Profile updated and synchronized successfully across the member directory.' 
   });
 });
@@ -2947,6 +2998,11 @@ app.post('/api/profile/update-request', (req, res) => {
 
   if (!memberId || !requestedChanges) {
     return res.status(400).json({ error: 'Missing required update request parameters.' });
+  }
+
+  const session = currentSession(req);
+  if (!canActAsMember(Boolean(session?.isSecretary), session?.id || '', memberId)) {
+    return res.status(403).json({ error: 'You can only request an update for your own profile.' });
   }
 
   const newReq = {
@@ -2967,8 +3023,10 @@ app.post('/api/profile/update-request', (req, res) => {
 
 // Members Directory API (Excludes Leaders, Secretary & Admin accounts, and returns all members of any status)
 app.get('/api/members', (req, res) => {
+  const session = currentSession(req);
   const membersOnly = memberApplications
     .filter(m => m.role !== 'Leader' && m.role !== 'Secretary' && m.role !== 'Admin')
+    .filter(m => visibleInMemberDirectory(m.status, Boolean(session?.isSecretary)))
     .map(m => withoutSecrets(m));
 
   return res.json(membersOnly);
@@ -3360,11 +3418,15 @@ function extractRowValue(row: Record<string, any>, ...candidateKeys: string[]): 
 }
 
 // Admin: Create Single Member
-app.post('/api/admin/members/create', (req, res) => {
-  const data = req.body;
+app.post('/api/admin/members/create', async (req, res) => {
+  const data = { ...(req.body || {}) };
   if (!data.fullName || !data.idCardNumber) {
     return res.status(400).json({ error: 'Full Name and ID Card Number are required.' });
   }
+
+  const plainPassword = memberPasswordInput(data);
+  delete data.password;
+  delete data.passwordHash;
 
   const username = data.username || data.fullName.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(100 + Math.random() * 900);
 
@@ -3399,8 +3461,17 @@ app.post('/api/admin/members/create', (req, res) => {
       overallAttendanceWithExcused: data.overallAttendanceWithExcused || existing.overallAttendanceWithExcused,
       updatedAt: new Date().toISOString()
     });
-    persistMember(existing);
-    return res.json({ success: true, member: existing, synced: true, message: 'Member profile successfully updated and synchronized.' });
+    if (plainPassword) {
+      existing.passwordHash = await ensurePasswordHash(plainPassword);
+      delete existing.password;
+    }
+    await persistMember(existing);
+    return res.json({ success: true, member: withoutSecrets(existing), synced: true, message: 'Member profile successfully updated and synchronized.' });
+  }
+
+  const usernameError = signupUsernameError(String(username), privilegedUsernames());
+  if (usernameError) {
+    return res.status(400).json({ error: usernameError });
   }
 
   const { years, months, days, role } = calculateAgeAndRole(data.dob);
@@ -3428,10 +3499,14 @@ app.post('/api/admin/members/create', (req, res) => {
     overallAttendanceWithExcused: data.overallAttendanceWithExcused || '0%',
     createdAt: new Date().toISOString()
   };
+  if (plainPassword) {
+    newMem.passwordHash = await ensurePasswordHash(plainPassword);
+  }
+  delete newMem.password;
 
   memberApplications.push(newMem);
-  persistMember(newMem);
-  return res.status(201).json({ success: true, member: newMem });
+  await persistMember(newMem);
+  return res.status(201).json({ success: true, member: withoutSecrets(newMem) });
 });
 
 // Admin: Update Single Member details individually (Secretary)
@@ -3444,6 +3519,21 @@ app.post('/api/admin/members/update/:id', async (req, res) => {
   }
 
   const existing = memberApplications[index];
+
+  const identityError = identityChangeError({
+    actorIsSecretary: true,
+    memberId: String(existing.id || ''),
+    currentUsername: existing.username,
+    currentEmail: existing.email,
+    nextUsername: updates.username !== undefined ? String(updates.username) : undefined,
+    nextEmail: updates.email !== undefined ? String(updates.email) : undefined,
+    otherUsernames: memberApplications.filter(m => m.id !== existing.id).map(m => String(m.username || '')),
+    otherEmails: memberApplications.filter(m => m.id !== existing.id).map(m => String(m.email || '')),
+    privilegedUsernames: privilegedUsernames()
+  });
+  if (identityError) {
+    return res.status(400).json({ error: identityError });
+  }
   
   const allowedFields = [
     'fullName', 'commonName', 'username', 'idCardNumber', 'dob', 'gender', 'role',
@@ -3470,9 +3560,10 @@ app.post('/api/admin/members/update/:id', async (req, res) => {
   }
 
   existing.updatedAt = new Date().toISOString();
+  delete existing.password;
   await persistMember(existing);
 
-  return res.json({ success: true, member: existing, message: 'Member profile details successfully updated.' });
+  return res.json({ success: true, member: withoutSecrets(existing), message: 'Member profile details successfully updated.' });
 });
 
 // Admin: Bulk Create & Sync Members from CSV / TSV / JSON rows
@@ -3765,10 +3856,11 @@ app.post('/api/sso/authenticate', async (req, res) => {
                       queryInput === 'a000000' || 
                       queryInput === 'it@arabiyyascouts.org' ||
                       queryInput === 'nazihnafiz@gmail.com';
-  const adminCheck = await checkPassword(ADMIN_USER.passwordHash, password);
+  const passwordText = String(password || '').trim();
+  const adminCheck = await checkPassword(ADMIN_USER.passwordHash, passwordText);
   if (isDocAdmin && (adminCheck === 'hashed' || adminCheck === 'legacy')) {
     if (adminCheck === 'legacy') {
-      await upgradeStoredPassword(ADMIN_USER, String(password));
+      await upgradeStoredPassword(ADMIN_USER, passwordText);
     }
     return res.json({
       success: true,
@@ -3803,10 +3895,10 @@ app.post('/api/sso/authenticate', async (req, res) => {
     if (!matchesId) continue;
 
     const phone = m.passwordHash ? null : (m.phoneNumber || m.mobileNumber || '');
-    const result = await checkPassword(m.passwordHash, password, phone);
+    const result = await checkPassword(m.passwordHash, passwordText, phone);
     if (result === 'miss') continue;
     if (result === 'legacy' || result === 'phone') {
-      await upgradeStoredPassword(m, String(password));
+      await upgradeStoredPassword(m, passwordText);
     }
     member = m;
     break;

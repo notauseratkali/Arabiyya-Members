@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { signSession, verifySession, sessionFromAuthHeader } from '../server/session.ts';
-import { isPublicApi, requiresSecretary } from '../server/apiAccess.ts';
+import { isPublicApi, requiresSecretary, canActAsMember } from '../server/apiAccess.ts';
 import { sanitizeHtml } from '../src/utils/sanitizeHtml.ts';
 import { countPendingRequests } from '../src/utils/requestCounts.ts';
 
@@ -33,6 +33,11 @@ test('public routes stay open and admin routes require a secretary', () => {
   assert.equal(requiresSecretary('POST', '/api/events'), true);
   assert.equal(requiresSecretary('POST', '/api/announcements/mark-read'), false);
   assert.equal(requiresSecretary('PUT', '/api/profile/update'), false);
+  assert.equal(requiresSecretary('DELETE', '/api/logbook/log-1'), false);
+  assert.equal(requiresSecretary('POST', '/api/logbook/log-1/review'), true);
+  assert.equal(canActAsMember(false, 'mem-1', 'mem-1'), true);
+  assert.equal(canActAsMember(false, 'mem-1', 'mem-2'), false);
+  assert.equal(canActAsMember(true, 'admin-001', 'mem-2'), true);
 });
 
 test('html sanitizer removes scripts and event handlers', () => {
@@ -50,6 +55,12 @@ test('pending request count uses the admin payload field names', () => {
     attendanceExcuses: [{ excuseStatus: 'Pending Review' }, { excuseStatus: 'Approved' }]
   });
   assert.equal(count, 3);
+  assert.equal(countPendingRequests({
+    memberApplications: [{ status: 'Pending Verification' }]
+  }), 1);
+  assert.equal(countPendingRequests({
+    memberApplications: [{ status: 'Investiture' }, { status: 'Active' }]
+  }), 0);
   assert.equal(countPendingRequests({
     joinRequests: [{ status: 'Pending Review' }],
     profileRequests: [{ status: 'Pending' }],

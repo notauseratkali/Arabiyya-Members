@@ -29,7 +29,7 @@ npm start
 
 ## API base URL (`VITE_API_URL`)
 
-The browser calls `/api/...` on the same origin when the page is served by this server (`localhost:3000` or a `*.run.app` host).
+The browser calls `/api/...` on the same origin when this server is hosting the page. That includes `npm run dev` and `npm start` on whatever `PORT` is set (the default is 3000), a `*.run.app` host, and any other host that serves this Node process. Do not set `VITE_API_URL` for those.
 
 GitHub Pages only hosts the static build. Set the API origin at **build** time:
 
@@ -47,7 +47,9 @@ New and changed passwords are stored as `scrypt$<salt>$<hash>` (`server/password
 
 Existing plaintext `passwordHash` values still sign in. On that successful login the server verifies the plaintext, replaces it with a scrypt hash, and saves the member. A member with no `passwordHash` can still sign in once with the mobile number stored on the record (country code `960` optional); that typed value is then hashed.
 
-Bulk import hashes the row password, or `scout123` when the row has none.
+Bulk import hashes the row password, or `scout123` when the row has none. The secretary Add Member form sends a `password` field; the server stores that as `passwordHash` and does not keep a separate plaintext password. Scheduled events are published when their publish time is due, with a 6-hour clock skew. They are not sent a full day early, and an event's start time is not treated as its publish time.
+
+Secretary access comes from the account role, the built-in `admin-001` record, or a username listed under Settings → Admin Roles. Changing a profile email to a council address, or choosing the username `admin` or `nazihnafiz` on the join form, does not grant it. New applications stay `Pending Verification` until a secretary approves them. Unauthenticated OTP responses show a masked phone or Telegram handle, not the full value.
 
 ## Firestore
 

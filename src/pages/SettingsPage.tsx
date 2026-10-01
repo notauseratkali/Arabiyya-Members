@@ -807,11 +807,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
                   </span>
                 </div>
                 <span className="text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-lg">
-                  Port 3000 • Cloud Run
+                  {serverStatus ? `Port ${serverStatus.port} • ${serverStatus.environment}` : 'Checking status'}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                Monitor live Express backend metrics, Cloud Run host endpoints, uptime diagnostics, and live Firebase Firestore database synchronization.
+                Monitor live Express backend metrics, the public app URL, uptime, and Firestore synchronization.
               </p>
             </div>
           </button>
@@ -1008,7 +1008,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500">
-                      Live Express server metrics, Cloud Run container endpoints, and Firestore persistence synchronization.
+                      Live Express server metrics, the app URL, and Firestore persistence.
                     </p>
                   </div>
                 </div>
@@ -1075,7 +1075,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
                     {serverStatus?.nodeVersion || 'v22.14'}
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1 font-medium capitalize">
-                    {serverStatus?.platform || 'Linux'} (Cloud Run)
+                    {serverStatus ? `${serverStatus.platform} · ${serverStatus.environment}` : 'Checking status'}
                   </p>
                 </div>
 

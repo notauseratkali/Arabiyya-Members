@@ -25,6 +25,16 @@ export async function hashPassword(plain: string): Promise<string> {
   return `${PREFIX}$${salt}$${derived.toString('hex')}`;
 }
 
+/**
+ * The Add Member form sends `password`. Older clients send `passwordHash`.
+ * Prefer the password the secretary just typed.
+ */
+export function memberPasswordInput(data: { password?: unknown; passwordHash?: unknown }): string {
+  if (typeof data.password === 'string' && data.password.length > 0) return data.password;
+  if (typeof data.passwordHash === 'string' && data.passwordHash.length > 0) return data.passwordHash;
+  return '';
+}
+
 /** Hash a new password. Leave an existing scrypt value unchanged so imports are not double-hashed. */
 export async function ensurePasswordHash(value: string): Promise<string> {
   if (isHashedPassword(value)) return value;
