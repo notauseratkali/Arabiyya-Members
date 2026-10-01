@@ -83,8 +83,7 @@ interface RequestsPageProps {
 }
 
 export const RequestsPage: React.FC<RequestsPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'join' | 'profile' | 'absence' | 'archived'>('join');
   const [loading, setLoading] = useState(true);

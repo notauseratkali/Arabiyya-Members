@@ -3,6 +3,7 @@ import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import { EventItem, MeetingMinute } from '../types';
 import { WordRichTextEditor } from '../components/WordRichTextEditor';
+import { sanitizeHtml } from '../utils/sanitizeHtml';
 import { 
   FileText, 
   Plus, 
@@ -28,8 +29,7 @@ interface MeetingMinutesPageProps {
 }
 
 export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [minutes, setMinutes] = useState<MeetingMinute[]>([]);
@@ -433,7 +433,7 @@ export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({ onNaviga
                   </strong>
                   <div 
                     className="prose prose-sm max-w-none text-gray-800 leading-relaxed font-sans"
-                    dangerouslySetInnerHTML={{ __html: selectedMinute.agenda }} 
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedMinute.agenda) }} 
                   />
                 </div>
               )}
@@ -444,7 +444,7 @@ export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({ onNaviga
                 </strong>
                 <div 
                   className="prose prose-sm max-w-none text-gray-800 leading-relaxed font-sans pt-1"
-                  dangerouslySetInnerHTML={{ __html: selectedMinute.discussionPoints }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedMinute.discussionPoints) }} 
                 />
               </div>
 
@@ -455,7 +455,7 @@ export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({ onNaviga
                   </strong>
                   <div 
                     className="prose prose-sm max-w-none text-emerald-950 leading-relaxed font-sans"
-                    dangerouslySetInnerHTML={{ __html: selectedMinute.resolutions }} 
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedMinute.resolutions) }} 
                   />
                 </div>
               )}
@@ -467,7 +467,7 @@ export const MeetingMinutesPage: React.FC<MeetingMinutesPageProps> = ({ onNaviga
                   </strong>
                   <div 
                     className="prose prose-sm max-w-none text-gray-900 leading-relaxed font-sans"
-                    dangerouslySetInnerHTML={{ __html: selectedMinute.actionItems }} 
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedMinute.actionItems) }} 
                   />
                 </div>
               )}

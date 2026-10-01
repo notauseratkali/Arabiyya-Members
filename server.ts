@@ -36,6 +36,9 @@ import { INITIAL_ROVER_POLICY, sortPolicyItems, PolicyItem } from './src/data/po
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, setLogLevel, serverTimestamp } from 'firebase/firestore';
 import { initFirebaseAdmin, getFirebaseAdminStatus, adminDb, adminAuth } from './server/firebaseAdmin';
+import { isPublicApi, requiresSecretary } from './server/apiAccess';
+import { sessionFromAuthHeader, signSession, SessionUser } from './server/session';
+import { sanitizeHtml } from './src/utils/sanitizeHtml';
 import fs from 'fs';
 
 // Process resilience guards for Cloud Run container lifecycle
@@ -51,27 +54,70 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Global CORS Middleware to allow the static GitHub Pages frontend to connect securely to this Cloud Run backend
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return url.protocol === 'http:' || url.protocol === 'https:';
+    if (host === 'notauseratkali.github.io') return url.protocol === 'https:';
+    if (host === 'portal.arabiyyascouts.org') return url.protocol === 'https:';
+    if (host.endsWith('.run.app')) return url.protocol === 'https:';
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Allow the known static site and local dev to call this API. Bearer tokens are used instead of cookies.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin) {
-    if (origin.includes('github.io') || origin.includes('localhost') || origin.includes('run.app')) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  if (typeof origin === 'string' && isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Accept, Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
 });
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (isPublicApi(req.method, req.path)) return next();
+
+  const session = sessionFromAuthHeader(req.headers.authorization);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  (req as any).sessionUser = session;
+  if (requiresSecretary(req.method, req.path) && !session.isSecretary) {
+    return res.status(403).json({ error: 'Permission denied.' });
+  }
+  next();
+});
+
+function currentSession(req: any): SessionUser | null {
+  return (req.sessionUser as SessionUser) || null;
+}
+
+function issueSessionToken(user: any): string {
+  const secretary = isUserAdminOrSecretary(user?.username, user?.email, user?.id, user?.role) || user?.isAdmin === true;
+  return signSession({
+    id: String(user?.id || user?.username || ''),
+    username: String(user?.username || ''),
+    email: String(user?.email || ''),
+    role: String(user?.role || ''),
+    isSecretary: secretary
+  });
+}
+
+function withoutSecrets<T extends Record<string, any>>(member: T): Omit<T, 'password' | 'passwordHash'> {
+  const { password, passwordHash, ...safe } = member;
+  return safe;
+}
 
 function sendWelcomeEmailIfNeeded(member: any, oldStatus: string, newStatus: string) {
   const isNowActive = newStatus === 'Approved' || newStatus === 'Active';
@@ -219,7 +265,7 @@ let memberApplications: any[] = [];
 let ADMIN_USER: any = {
   id: 'admin-001',
   username: 'admin',
-  passwordHash: 'admin123',
+  passwordHash: process.env.ADMIN_PASSWORD || 'admin123',
   fullName: 'Ahmed Nazih Nafiz',
   commonName: 'Ahmed',
   role: 'Secretary',
@@ -565,7 +611,10 @@ async function loadPersistedData() {
       const foundAdmin = memberApplications.find(m => m.id === 'admin-001' || m.username === 'admin');
       if (foundAdmin) {
         Object.assign(ADMIN_USER, foundAdmin);
-        console.log(`[Synced ADMIN_USER from Firestore. passwordHash: ${ADMIN_USER.passwordHash}]`);
+        if (process.env.ADMIN_PASSWORD) {
+          ADMIN_USER.passwordHash = process.env.ADMIN_PASSWORD;
+        }
+        console.log('[Synced ADMIN_USER from Firestore]');
       }
       
       // Fix-up hijacked or pending profiles for developers/admins to ensure they are active
@@ -776,9 +825,6 @@ async function loadPersistedData() {
     console.error('[Error loading persisted data from Firestore]:', err);
   }
 }
-
-// Load persisted data on server startup
-loadPersistedData();
 
 // OTP Store for Application Tracking and Password Recovery
 const otpsStore = new Map<string, { otp: string; expiresAt: number; idCard: string; email: string }>();
@@ -1107,9 +1153,8 @@ app.post('/api/auth/login', async (req, res) => {
 
   const queryInput = (username || '').trim().toLowerCase();
   const queryPass = (password || '').trim();
-  const queryPassLower = queryPass.toLowerCase();
 
-  console.log(`[Login Attempt] Username/ID/Email: "${queryInput}", Password Length: ${queryPass.length}`);
+  console.log(`[Login Attempt] Username/ID/Email: "${queryInput}"`);
 
   const adminIdentifiers = [
     'admin',
@@ -1127,31 +1172,30 @@ app.post('/api/auth/login', async (req, res) => {
 
   const isAdminUser = adminIdentifiers.includes(queryInput);
 
-  const isValidAdminPass = queryPassLower === 'admin123' || 
-                            queryPassLower === '123' || 
-                            queryPassLower === 'admin' || 
-                            (ADMIN_USER.passwordHash && queryPass === ADMIN_USER.passwordHash) ||
-                            (ADMIN_USER.password && queryPass === ADMIN_USER.password);
+  const isValidAdminPass = Boolean(ADMIN_USER.passwordHash) && queryPass === ADMIN_USER.passwordHash;
 
   // Absolute immediate connection for admin accounts
   if (isAdminUser && isValidAdminPass) {
     console.log(`[Login Success] Admin user authenticated: "${queryInput}"`);
+    const adminSessionUser = {
+      id: ADMIN_USER.id || 'admin-001',
+      username: ADMIN_USER.username || 'admin',
+      fullName: ADMIN_USER.fullName || 'Ahmed Nazih Nafiz',
+      commonName: ADMIN_USER.commonName || 'Ahmed',
+      role: 'Secretary',
+      idCardNumber: ADMIN_USER.idCardNumber || 'A000000',
+      email: ADMIN_USER.email || 'it@arabiyyascouts.org',
+      status: 'Investiture',
+      investitureDate: '2020-01-01',
+      awardGoal: 'Baden-Powell Award',
+      awardIntent: false,
+      currentLevel: 'President Scout Award Holder',
+      isAdmin: true
+    };
     return res.json({
       success: true,
-      user: {
-        id: ADMIN_USER.id || 'admin-001',
-        username: ADMIN_USER.username || 'admin',
-        fullName: ADMIN_USER.fullName || 'Ahmed Nazih Nafiz',
-        commonName: ADMIN_USER.commonName || 'Ahmed',
-        role: 'Secretary',
-        idCardNumber: ADMIN_USER.idCardNumber || 'A000000',
-        email: ADMIN_USER.email || 'it@arabiyyascouts.org',
-        status: 'Investiture',
-        investitureDate: '2020-01-01',
-        awardGoal: 'Baden-Powell Award',
-        awardIntent: false,
-        currentLevel: 'President Scout Award Holder'
-      }
+      token: issueSessionToken(adminSessionUser),
+      user: adminSessionUser
     });
   }
 
@@ -1169,8 +1213,7 @@ app.post('/api/auth/login', async (req, res) => {
     const normMemberPhone = (m.phoneNumber || m.mobileNumber || '').replace(/\D/g, '');
     const normMemberPhoneNoCc = normMemberPhone.startsWith('960') && normMemberPhone.length >= 10 ? normMemberPhone.slice(3) : normMemberPhone;
     
-    const matchesPassword = m.passwordHash === queryPass || 
-                            (queryPass === 'password' && !m.passwordHash) ||
+    const matchesPassword = m.passwordHash === queryPass ||
                             (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc);
                             
     return matchesId && matchesPassword;
@@ -1202,33 +1245,37 @@ app.post('/api/auth/login', async (req, res) => {
 
   console.log(`[Login Success] Member user authenticated: "${queryInput}" (id: ${member.id})`);
 
+  const memberSessionUser = {
+    id: member.id,
+    username: member.username || member.idCardNumber,
+    fullName: member.fullName,
+    commonName: member.commonName || member.fullName,
+    role: member.role,
+    idCardNumber: member.idCardNumber,
+    email: member.email,
+    mobileNumber: member.mobileNumber || member.phoneNumber,
+    phoneNumber: member.phoneNumber || member.mobileNumber,
+    whatsappNumber: member.whatsappNumber || member.mobileNumber,
+    permanentAddress: member.permanentAddress,
+    currentAddress: member.currentAddress,
+    dob: member.dob,
+    ageYears: member.ageYears,
+    status: member.status,
+    investitureDate: member.investitureDate || new Date().toISOString().split('T')[0],
+    awardGoal: member.awardGoal,
+    awardIntent: member.awardIntent,
+    currentLevel: member.currentLevel,
+    emergencyContactName: member.emergencyContactName,
+    emergencyContactPhone: member.emergencyContactPhone,
+    instagramTag: member.instagramTag,
+    telegramTag: member.telegramTag,
+    isAdmin: isUserAdminOrSecretary(member.username, member.email, member.id, member.role) || undefined
+  };
+
   return res.json({
     success: true,
-    user: {
-      id: member.id,
-      username: member.username || member.idCardNumber,
-      fullName: member.fullName,
-      commonName: member.commonName || member.fullName,
-      role: member.role,
-      idCardNumber: member.idCardNumber,
-      email: member.email,
-      mobileNumber: member.mobileNumber || member.phoneNumber,
-      phoneNumber: member.phoneNumber || member.mobileNumber,
-      whatsappNumber: member.whatsappNumber || member.mobileNumber,
-      permanentAddress: member.permanentAddress,
-      currentAddress: member.currentAddress,
-      dob: member.dob,
-      ageYears: member.ageYears,
-      status: member.status,
-      investitureDate: member.investitureDate || new Date().toISOString().split('T')[0],
-      awardGoal: member.awardGoal,
-      awardIntent: member.awardIntent,
-      currentLevel: member.currentLevel,
-      emergencyContactName: member.emergencyContactName,
-      emergencyContactPhone: member.emergencyContactPhone,
-      instagramTag: member.instagramTag,
-      telegramTag: member.telegramTag
-    }
+    token: issueSessionToken(memberSessionUser),
+    user: memberSessionUser
   });
 });
 
@@ -1254,6 +1301,18 @@ app.post('/api/auth/setup-first-time', (req, res) => {
 
   if (!member) {
     return res.status(404).json({ error: 'No bulk-imported member record found with this ID Card Number.' });
+  }
+
+  if (member.passwordHash) {
+    return res.status(403).json({ error: 'This account already has a password. Use Forgot Password to change it.' });
+  }
+
+  const storedPhone = String(member.phoneNumber || member.mobileNumber || '').replace(/\D/g, '');
+  const storedPhoneNoCc = storedPhone.startsWith('960') && storedPhone.length >= 10 ? storedPhone.slice(3) : storedPhone;
+  const providedPhone = String(req.body.verificationPhone || '').replace(/\D/g, '');
+  const providedPhoneNoCc = providedPhone.startsWith('960') && providedPhone.length >= 10 ? providedPhone.slice(3) : providedPhone;
+  if (!storedPhoneNoCc || providedPhoneNoCc !== storedPhoneNoCc) {
+    return res.status(403).json({ error: 'Enter the mobile number already on this membership record before setting a password.' });
   }
 
   // Check username availability among OTHER members
@@ -1545,14 +1604,21 @@ app.post('/api/auth/forgot-password/reset', async (req, res) => {
   });
 });
 
-// Events API
-app.get('/api/events', (req, res) => {
-  const isSecretary = req.query.isSecretary === 'true' || req.query.isAdmin === 'true';
-  const now = new Date();
-  const nowStr = now.toISOString().slice(0, 16);
+// Maldives is UTC+5. Datetime-local values are parsed as server-local time, so allow
+// a small skew instead of treating every event due in the next day as already published.
+const PUBLISH_TIME_SKEW_MS = 6 * 60 * 60 * 1000;
 
-  // Check if any voluntary suspensions have expired and automatically reactivate membership
+function publishTimeReached(pubDate: string | undefined, nowMs: number): boolean {
+  if (!pubDate) return false;
+  const pubTime = new Date(pubDate).getTime();
+  if (isNaN(pubTime)) return false;
+  return pubTime <= nowMs + PUBLISH_TIME_SKEW_MS;
+}
+
+function runScheduledMaintenance() {
+  const now = new Date();
   const todayDateStr = now.toISOString().slice(0, 10);
+
   for (const m of memberApplications) {
     if ((m.status === 'Suspended' || m.status === 'Voluntary Suspension') && m.suspensionEndDate && m.suspensionEndDate <= todayDateStr) {
       m.status = 'Approved';
@@ -1570,14 +1636,9 @@ app.get('/api/events', (req, res) => {
     }
   }
 
-  // Check if any scheduled events reached Publish Date and send automated notification
   for (const evt of eventsStore) {
     const pubDate = evt.publishDateTime || evt.triggerDateTime;
-    // Account for client-side local timezone offsets (e.g., Maldives UTC+5):
-    // If publishDateTime is within 24h of now or already passed, it is considered reached.
-    const pubTime = pubDate ? new Date(pubDate).getTime() : 0;
-    const isPastOrNow = pubDate ? (pubTime <= now.getTime() + (24 * 60 * 60 * 1000) || pubDate <= nowStr) : true;
-    if (isPastOrNow && !evt.emailNotified) {
+    if (publishTimeReached(pubDate, now.getTime()) && !evt.emailNotified) {
       evt.emailNotified = true;
       evt.isPublished = true;
       persistEvent(evt);
@@ -1602,6 +1663,12 @@ app.get('/api/events', (req, res) => {
       }
     }
   }
+}
+
+// Events API
+app.get('/api/events', (req, res) => {
+  const isSecretary = Boolean(currentSession(req)?.isSecretary);
+  const now = new Date();
 
   if (isSecretary) {
     return res.json(eventsStore);
@@ -1623,15 +1690,7 @@ app.get('/api/events', (req, res) => {
 
     const pubDate = evt.publishDateTime || evt.triggerDateTime || evt.fromDateTime;
     if (!pubDate) return true;
-
-    // Timezone safe check:
-    // Allow up to 24 hours of local-to-server timezone skew so an event published
-    // in local time (e.g. Asia/Maldives UTC+5) is immediately visible without waiting 5 hours.
-    const pubTime = new Date(pubDate).getTime();
-    if (isNaN(pubTime)) return true;
-
-    const isPublished = pubTime <= (now.getTime() + (24 * 60 * 60 * 1000)) || pubDate <= nowStr;
-    return isPublished;
+    return publishTimeReached(pubDate, now.getTime());
   });
 
   return res.json(publishedEvents);
@@ -2336,13 +2395,14 @@ app.delete('/api/announcements/presets/:id', (req, res) => {
 
 // Attendance API
 app.get('/api/attendance', (req, res) => {
-  const { memberId, isSecretary } = req.query;
+  const session = currentSession(req);
+  const memberId = req.query.memberId as string | undefined;
 
-  if (isSecretary === 'true') {
+  if (session?.isSecretary) {
     return res.json(attendanceStore);
   }
 
-  if (memberId) {
+  if (memberId && session && (memberId === session.id)) {
     const userAttendance = attendanceStore.filter(a => a.memberId === memberId);
     return res.json(userAttendance);
   }
@@ -2489,10 +2549,10 @@ app.post('/api/meeting-minutes', (req, res) => {
     eventName: event ? event.name : 'Group Meeting',
     eventDate: event ? (event.fromDateTime ? event.fromDateTime.split('T')[0] : new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
     title,
-    agenda: agenda || '',
-    discussionPoints: discussionPoints || '',
-    resolutions: resolutions || '',
-    actionItems: actionItems || '',
+    agenda: sanitizeHtml(agenda || ''),
+    discussionPoints: sanitizeHtml(discussionPoints || ''),
+    resolutions: sanitizeHtml(resolutions || ''),
+    actionItems: sanitizeHtml(actionItems || ''),
     nextMeetingDate: nextMeetingDate || '',
     publishedBy: publishedBy || systemSettings.secretary_name || 'Secretary of Arabiyya Rover Network',
     publishedAt: new Date().toISOString(),
@@ -2743,19 +2803,6 @@ function findMemberRecord(idCardNumber?: string, memberId?: string, username?: s
     return ADMIN_USER;
   }
 
-  // 3. Fallback: if not found, create a record so updates and lookups always succeed
-  if (normIdCard || normMemId) {
-    const newRecord: any = {
-      id: normMemId || `mem-${Date.now()}`,
-      idCardNumber: idCardNumber || 'A000000',
-      fullName: 'Member',
-      status: 'Investiture',
-      role: 'Rover'
-    };
-    memberApplications.push(newRecord);
-    return newRecord;
-  }
-
   return null;
 }
 
@@ -2770,8 +2817,12 @@ app.get('/api/members/profile', (req, res) => {
     return res.status(404).json({ error: 'Member profile not found.' });
   }
 
-  const { passwordHash, ...safeMember } = member;
-  return res.json(safeMember);
+  const session = currentSession(req);
+  if (!session?.isSecretary && member.id !== session?.id && String(member.username || '').toLowerCase() !== String(session?.username || '').toLowerCase()) {
+    return res.status(403).json({ error: 'You can only view your own profile.' });
+  }
+
+  return res.json(withoutSecrets(member));
 });
 
 app.get('/api/profile/:idCard', (req, res) => {
@@ -2782,8 +2833,15 @@ app.get('/api/profile/:idCard', (req, res) => {
     return res.status(404).json({ error: 'Member not found.' });
   }
 
-  const { passwordHash, ...safeMember } = member;
-  return res.json(safeMember);
+  const session = currentSession(req);
+  const ownsRecord = member.id === session?.id
+    || String(member.username || '').toLowerCase() === String(session?.username || '').toLowerCase()
+    || String(member.idCardNumber || '').toLowerCase() === String(session?.username || '').toLowerCase();
+  if (!session?.isSecretary && !ownsRecord) {
+    return res.status(403).json({ error: 'You can only view your own profile.' });
+  }
+
+  return res.json(withoutSecrets(member));
 });
 
 app.put('/api/profile/update', (req, res) => {
@@ -2799,10 +2857,33 @@ app.put('/api/profile/update', (req, res) => {
     return res.status(404).json({ error: 'Member profile record not found.' });
   }
 
+  const session = currentSession(req);
+  const isSelf = Boolean(session && (
+    session.id === member.id ||
+    (session.username && member.username && session.username.toLowerCase() === String(member.username).toLowerCase()) ||
+    (session.email && member.email && session.email.toLowerCase() === String(member.email).toLowerCase())
+  ));
+  if (!session?.isSecretary && !isSelf) {
+    return res.status(403).json({ error: 'You can only update your own profile.' });
+  }
+  if (!session?.isSecretary && updates) {
+    delete updates.role;
+    delete updates.status;
+    delete updates.isAdmin;
+    delete updates.passwordHash;
+    delete updates.idCardNumber;
+  }
+
   const oldStatus = member.status;
 
   // Update profile fields in memory store
   if (updates) {
+    if (updates.username !== undefined && String(updates.username).trim()) {
+      member.username = String(updates.username).trim().toLowerCase();
+    }
+    if (updates.password !== undefined && String(updates.password).length > 0) {
+      member.passwordHash = String(updates.password);
+    }
     if (updates.fullName !== undefined) member.fullName = updates.fullName;
     if (updates.commonName !== undefined) member.commonName = updates.commonName;
     if (updates.idCardNumber !== undefined) member.idCardNumber = updates.idCardNumber;
@@ -2903,7 +2984,7 @@ app.post('/api/profile/update-request', (req, res) => {
 app.get('/api/members', (req, res) => {
   const membersOnly = memberApplications
     .filter(m => m.role !== 'Leader' && m.role !== 'Secretary' && m.role !== 'Admin')
-    .map(({ passwordHash, ...m }) => m);
+    .map(m => withoutSecrets(m));
 
   return res.json(membersOnly);
 });
@@ -3120,7 +3201,7 @@ app.get('/api/admin/requests', (req, res) => {
 
   return res.json({
     leaderApplications,
-    memberApplications,
+    memberApplications: memberApplications.map(m => withoutSecrets(m)),
     profileUpdateRequests,
     attendanceExcuses: attendanceStore.filter(a => a.status === 'Unable To Attend')
   });
@@ -3680,8 +3761,8 @@ app.post('/api/sso/authenticate', async (req, res) => {
   const headerApiKey = req.headers['x-sso-api-key'] || (req.headers['authorization'] || '').replace('Bearer ', '');
   const providedApiKey = apiKey || headerApiKey;
 
-  const masterKey = systemSettings.sso_api_key || 'arabiyya_sso_hwbg36jf97n16gwuzp1hk';
-  if (providedApiKey && providedApiKey !== masterKey && providedApiKey !== 'arabiyya_sso_hwbg36jf97n16gwuzp1hk') {
+  const masterKey = systemSettings.sso_api_key;
+  if (!masterKey || !providedApiKey || providedApiKey !== masterKey) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Invalid Master SSO API Key.' });
   }
 
@@ -3695,7 +3776,7 @@ app.post('/api/sso/authenticate', async (req, res) => {
                       queryInput === 'a000000' || 
                       queryInput === 'it@arabiyyascouts.org' ||
                       queryInput === 'nazihnafiz@gmail.com';
-  if (isDocAdmin && (password === ADMIN_USER.passwordHash || password === 'admin123' || password === 'password')) {
+  if (isDocAdmin && password === ADMIN_USER.passwordHash) {
     return res.json({
       success: true,
       token: `sso_token_${Date.now()}_${Math.random().toString(36).substring(2)}`,
@@ -3739,10 +3820,8 @@ app.post('/api/sso/authenticate', async (req, res) => {
     const normMemberPhone = (m.phoneNumber || m.mobileNumber || '').replace(/\D/g, '');
     const normMemberPhoneNoCc = normMemberPhone.startsWith('960') && normMemberPhone.length >= 10 ? normMemberPhone.slice(3) : normMemberPhone;
     
-    const matchesPassword = m.passwordHash === password || 
-                            password === 'password' || 
-                            (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc) ||
-                            (password === 'admin123' && isUserAdminOrSecretary(m.username, m.email, m.id, m.role));
+    const matchesPassword = m.passwordHash === password ||
+                            (!m.passwordHash && normInputPassword !== '' && normInputPassword === normMemberPhoneNoCc);
                             
     return matchesId && matchesPassword;
   });
@@ -3840,15 +3919,20 @@ app.get('/api/admin/telegram', (req, res) => {
   const config = getTelegramConfig();
   return res.json({
     configured: Boolean(config.bot_token),
-    config
+    config: {
+      ...config,
+      bot_token: config.bot_token ? '••••••••••••' : ''
+    }
   });
 });
 
 app.put('/api/admin/telegram', async (req, res) => {
   const { bot_token, chat_id, channel_username, enabled, announcement_chat_id } = req.body || {};
+  const existing = getTelegramConfig();
+  const nextToken = (!bot_token || bot_token === '••••••••••••') ? existing.bot_token : bot_token;
   
   const updated = {
-    bot_token: bot_token || '',
+    bot_token: nextToken || '',
     chat_id: chat_id || '@arabiyyarovers',
     channel_username: channel_username || '@arabiyyascoutsbot',
     enabled: enabled !== undefined ? Boolean(enabled) : false,
@@ -3861,10 +3945,14 @@ app.put('/api/admin/telegram', async (req, res) => {
     if (db) {
       await setDoc(doc(db, 'settings', 'telegram'), updated, { merge: true });
     }
+    const saved = getTelegramConfig();
     return res.json({
       success: true,
       message: 'Telegram settings updated and persisted successfully.',
-      config: getTelegramConfig()
+      config: {
+        ...saved,
+        bot_token: saved.bot_token ? '••••••••••••' : ''
+      }
     });
   } catch (error: any) {
     console.error('[Error persisting telegram settings to Firestore]:', error);
@@ -4097,7 +4185,15 @@ async function start() {
 
   // Infrastructure constraint: Port 3000 is hardcoded for the nginx reverse proxy
   // both in local development and production container deployments.
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  await Promise.race([
+    loadPersistedData(),
+    new Promise(resolve => setTimeout(resolve, 8000))
+  ]);
+  runScheduledMaintenance();
+  const maintenanceTimer = setInterval(runScheduledMaintenance, 60 * 1000);
+  if (typeof maintenanceTimer.unref === 'function') maintenanceTimer.unref();
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Arabiyya Rovers Server listening on port ${PORT} [mode: ${isProduction ? 'production' : 'development'}]`);

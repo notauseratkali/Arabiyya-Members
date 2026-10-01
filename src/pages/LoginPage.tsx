@@ -41,7 +41,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate, notice }) => {
         return;
       }
 
-      login(data.user);
+      login(data.user, data.token);
       onNavigate('/dashboard');
     } catch (err) {
       setLoading(false);

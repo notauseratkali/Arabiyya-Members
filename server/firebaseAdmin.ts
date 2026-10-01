@@ -109,8 +109,8 @@ try {
 export function getFirebaseAdminStatus() {
   return {
     initialized: Boolean(adminApp),
-    projectId: projectId || (adminApp ? adminApp.options.projectId : null),
-    clientEmail: clientEmail,
+    projectId: projectId || adminApp?.options.projectId,
+    clientEmail: clientEmail || undefined,
     error: initError
   };
 }

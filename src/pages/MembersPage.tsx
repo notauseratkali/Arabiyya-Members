@@ -38,8 +38,7 @@ interface MembersPageProps {
 }
 
 export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
   const [members, setMembers] = useState<MemberApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

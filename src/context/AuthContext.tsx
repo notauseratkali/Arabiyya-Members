@@ -13,7 +13,7 @@ import { safeStorage } from '../utils/safeStorage';
 interface AuthContextType {
   user: AuthUser | null;
   firebaseUser: FirebaseUser | null;
-  login: (user: AuthUser) => void;
+  login: (user: AuthUser, token?: string) => void;
   updateUser: (updatedFields: Partial<AuthUser>) => void;
   logout: () => Promise<void>;
   isLoading: boolean;
@@ -26,7 +26,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
       const savedUser = safeStorage.getItem('arabiyya_auth_user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      const token = safeStorage.getItem('arabiyya_auth_token');
+      if (!savedUser || !token) {
+        if (savedUser && !token) safeStorage.removeItem('arabiyya_auth_user');
+        return null;
+      }
+      return JSON.parse(savedUser);
     } catch {
       return null;
     }
@@ -36,6 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [adminRoles, setAdminRoles] = useState<{ id: string; name: string; description: string; assignedUsernames: string[] }[]>([]);
 
   useEffect(() => {
+    if (!safeStorage.getItem('arabiyya_auth_token')) return;
     fetchWithRetry('/api/admin/settings')
       .then(res => res.json())
       .then(data => {
@@ -49,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isSecretary = React.useMemo(() => {
     if (!user) return false;
     if (user.role === 'Secretary' || user.role === 'Admin' || user.isAdmin === true) return true;
-    if (user.username === 'admin' || user.email === 'it@arabiyyascouts.org' || user.email === 'admin@arabiyyarovers.net' || user.email === 'nazihnafiz@gmail.com') return true;
+    if (user.email === 'it@arabiyyascouts.org' || user.email === 'admin@arabiyyarovers.net' || user.email === 'nazihnafiz@gmail.com') return true;
     
     for (const role of adminRoles) {
       if (role.assignedUsernames && Array.isArray(role.assignedUsernames)) {
@@ -65,7 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Synchronize local session and Firebase Auth state
   useEffect(() => {
     const savedUser = safeStorage.getItem('arabiyya_auth_user');
-    if (savedUser) {
+    const savedToken = safeStorage.getItem('arabiyya_auth_token');
+    if (savedUser && savedToken) {
       try {
         const parsed = JSON.parse(savedUser);
         setUser(parsed);
@@ -95,8 +102,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const isUserAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
                                 fbUser.email === 'admin@arabiyyarovers.net' || 
                                 fbUser.email === 'nazihnafiz@gmail.com' ||
-                                fbUser.email?.includes('admin') ||
-                                data.idCardNumber?.trim().toUpperCase() === 'A000000' ||
                                 data.role === 'Admin' ||
                                 data.role === 'Secretary' ||
                                 data.isAdmin === true;
@@ -106,25 +111,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 data.isAdmin = true;
                 needsUpdate = true;
               }
-              const newRole = 'Secretary';
+              const newRole = data.role === 'Admin' || data.role === 'Secretary' ? data.role : 'Secretary';
               if (data.role !== newRole) {
                 data.role = newRole;
-                needsUpdate = true;
-              }
-              if (data.idCardNumber !== 'A000000') {
-                data.idCardNumber = 'A000000';
-                needsUpdate = true;
-              }
-              if (fbUser.email === 'nazihnafiz@gmail.com' && data.email !== 'it@arabiyyascouts.org') {
-                data.email = 'it@arabiyyascouts.org';
                 needsUpdate = true;
               }
               if (needsUpdate) {
                 await setDoc(userDocRef, { 
                   isAdmin: true, 
-                  role: newRole,
-                  idCardNumber: 'A000000',
-                  email: fbUser.email === 'nazihnafiz@gmail.com' ? 'it@arabiyyascouts.org' : fbUser.email
+                  role: newRole
                 }, { merge: true });
               }
             }
@@ -133,16 +128,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             const isAdmin = fbUser.email === 'it@arabiyyascouts.org' || 
                             fbUser.email === 'admin@arabiyyarovers.net' || 
-                            fbUser.email === 'nazihnafiz@gmail.com' ||
-                            fbUser.email?.includes('admin');
+                            fbUser.email === 'nazihnafiz@gmail.com';
             const fallbackUser: AuthUser = {
               id: fbUser.uid,
               username: fbUser.email ? fbUser.email.split('@')[0] : 'scout_user',
               fullName: isAdmin ? 'Ahmed Nazih Nafiz' : (fbUser.displayName || 'Arabiyya Scout Member'),
               commonName: isAdmin ? 'Ahmed' : (fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Member'),
               role: isAdmin ? 'Secretary' : 'Rover',
-              idCardNumber: isAdmin ? 'A000000' : 'A' + Math.floor(100000 + Math.random() * 900000),
-              email: isAdmin ? 'it@arabiyyascouts.org' : (fbUser.email || ''),
+              idCardNumber: isAdmin ? 'A000000' : '',
+              email: fbUser.email || '',
               status: 'Investiture',
               awardGoal: 'Baden-Powell Award',
               awardIntent: true,
@@ -170,9 +164,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const login = (userData: AuthUser) => {
+  const login = (userData: AuthUser, token?: string) => {
     setUser(userData);
     safeStorage.setItem('arabiyya_auth_user', JSON.stringify(userData));
+    if (token) safeStorage.setItem('arabiyya_auth_token', token);
+    else safeStorage.removeItem('arabiyya_auth_token');
 
     // Also persist user profile to Firestore
     try {
@@ -193,24 +189,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                prev.role === 'Secretary' ||
                                prev.isAdmin === true ||
                                prev.email === 'it@arabiyyascouts.org' || 
-                               prev.email === 'nazihnafiz@gmail.com' ||
-                               prev.idCardNumber === 'A000000' ||
-                               updatedFields.email === 'it@arabiyyascouts.org' ||
-                               updatedFields.email === 'nazihnafiz@gmail.com' ||
-                               updatedFields.idCardNumber === 'A000000' ||
-                               updatedFields.isAdmin === true;
+                               prev.email === 'admin@arabiyyarovers.net' ||
+                               prev.email === 'nazihnafiz@gmail.com';
 
       const merged: AuthUser = { ...prev, ...updatedFields };
 
       if (isCurrentlyAdmin) {
         merged.isAdmin = true;
-        merged.idCardNumber = 'A000000';
         if (!merged.role) {
           merged.role = prev.role || 'Secretary';
         }
         if (prev.id && prev.id !== 'admin-001') {
           merged.id = prev.id;
         }
+      } else {
+        merged.isAdmin = prev.isAdmin;
       }
 
       safeStorage.setItem('arabiyya_auth_user', JSON.stringify(merged));
@@ -237,6 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setFirebaseUser(null);
     safeStorage.removeItem('arabiyya_auth_user');
+    safeStorage.removeItem('arabiyya_auth_token');
   };
 
   return (

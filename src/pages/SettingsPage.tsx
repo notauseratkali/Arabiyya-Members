@@ -57,8 +57,7 @@ interface SmtpSettingsState {
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
   const { logoUrl, setLogoUrl, resetLogo } = useLogo();
   const [activeSubPage, setActiveSubPage] = useState<string | null>(null);
   const [logoUploadMsg, setLogoUploadMsg] = useState<string | null>(null);

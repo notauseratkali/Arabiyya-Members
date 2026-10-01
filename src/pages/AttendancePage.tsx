@@ -16,8 +16,7 @@ interface AttendancePageProps {
 }
 
 export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -486,7 +485,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                 const isAttended = record?.status === 'Attended';
                 const evaluation = user ? evaluateEventRequirementForMember(evt, user) : { isRequired: true, isSuspended: false, badgeStyle: '', statusLabel: '', reason: '' };
                 const isExempt = !evaluation.isRequired || evaluation.isSuspended;
-                const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && (evt.signedUpMembers.includes(user.id) || evt.signedUpMembers.includes(user.memberId)));
+                const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && evt.signedUpMembers.includes(user.id) || (user?.memberId && evt.signedUpMembers?.includes(user.memberId)));
 
                 return (
                   <div key={evt.id} className="p-4 space-y-3 bg-white">
@@ -620,7 +619,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ onNavigate }) =>
                     const isAttended = record?.status === 'Attended';
                     const evaluation = user ? evaluateEventRequirementForMember(evt, user) : { isRequired: true, isSuspended: false, badgeStyle: '', statusLabel: '', reason: '' };
                     const isExempt = !evaluation.isRequired || evaluation.isSuspended;
-                    const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && (evt.signedUpMembers.includes(user.id) || evt.signedUpMembers.includes(user.memberId)));
+                    const isSignedUp = Boolean(user && Array.isArray(evt.signedUpMembers) && evt.signedUpMembers.includes(user.id) || (user?.memberId && evt.signedUpMembers?.includes(user.memberId)));
 
                     return (
                       <tr key={evt.id} className="hover:bg-gray-50/80">

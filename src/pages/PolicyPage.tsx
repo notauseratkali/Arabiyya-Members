@@ -36,8 +36,7 @@ interface PolicyPageProps {
 }
 
 export const PolicyPage: React.FC<PolicyPageProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [policies, setPolicies] = useState<PolicyItem[]>([]);
   const [loading, setLoading] = useState(true);

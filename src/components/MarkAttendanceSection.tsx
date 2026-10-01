@@ -33,8 +33,7 @@ interface MarkAttendanceSectionProps {
 }
 
 export const MarkAttendanceSection: React.FC<MarkAttendanceSectionProps> = () => {
-  const { user } = useAuth();
-  const isSecretary = user?.role === 'Secretary';
+  const { user, isSecretary } = useAuth();
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [members, setMembers] = useState<MemberApplication[]>([]);

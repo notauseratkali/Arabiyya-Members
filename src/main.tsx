@@ -17,6 +17,23 @@ try {
       url = (input as Request).url;
     }
 
+    const isApiRequest = url.startsWith('/api/') || url.includes('/api/');
+    if (isApiRequest) {
+      let token: string | null = null;
+      try {
+        token = window.localStorage.getItem('arabiyya_auth_token');
+      } catch {
+        token = null;
+      }
+      if (token) {
+        const headers = new Headers(init?.headers || undefined);
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+        init = { ...(init || {}), headers };
+      }
+    }
+
     // If the request is a relative API endpoint
     if (url.startsWith('/api/') || (url.startsWith(window.location.origin) && url.includes('/api/'))) {
       const isBackendHost = window.location.hostname.endsWith('run.app') || 
