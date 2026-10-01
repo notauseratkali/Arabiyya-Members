@@ -304,7 +304,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     port: number;
     platform: string;
     memory?: { rss?: string; heapUsed?: string; heapTotal?: string };
-    urls: { devUrl: string; sharedUrl: string; localUrl: string };
+    urls: { appUrl?: string; localUrl: string };
     firebase: {
       configured: boolean;
       status: string;
@@ -1115,71 +1115,71 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
                 </div>
               </div>
 
-              {/* Cloud Run Container Endpoints */}
+              {/* Public app URL comes from APP_URL. Static Pages builds use VITE_API_URL. */}
               <div className="p-5 bg-gray-50 border border-gray-200/80 rounded-xl space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-black text-darkblue uppercase tracking-wider flex items-center space-x-2">
                     <Globe className="w-4 h-4 text-sky-600" />
-                    <span>Cloud Run Host Endpoints</span>
+                    <span>App URL</span>
                   </h3>
-                  <span className="text-[11px] font-bold text-slate-500">Region: asia-southeast1</span>
+                  <span className="text-[11px] font-bold text-slate-500">From APP_URL</span>
                 </div>
 
                 <div className="space-y-3">
-                  {/* Dev URL */}
                   <div className="p-3 bg-white border border-gray-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center space-x-2">
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md">Development App</span>
-                        <span className="text-xs text-gray-500">Live Agent Development Container</span>
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md">Public URL</span>
+                        <span className="text-xs text-gray-500">Set APP_URL on the server. See README.</span>
                       </div>
                       <div className="text-xs font-mono font-bold text-gray-800 mt-1 truncate">
-                        {serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                        {serverStatus?.urls?.appUrl || 'Set APP_URL (see README)'}
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 self-end sm:self-auto shrink-0">
                       <button
                         type="button"
-                        onClick={() => handleCopy(serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app', 'devUrl')}
+                        onClick={() => handleCopy(serverStatus?.urls?.appUrl || '', 'appUrl')}
                         className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] rounded-lg flex items-center space-x-1"
                       >
-                        {copiedKey === 'devUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedKey === 'devUrl' ? 'Copied' : 'Copy'}</span>
+                        {copiedKey === 'appUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'appUrl' ? 'Copied' : 'Copy'}</span>
                       </button>
-                      <a
-                        href={serverStatus?.urls?.devUrl || 'https://ais-dev-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1.5 bg-darkblue hover:bg-opacity-90 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        <span>Open</span>
-                      </a>
+                      {serverStatus?.urls?.appUrl ? (
+                        <a
+                          href={serverStatus.urls.appUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1.5 bg-darkblue hover:bg-opacity-90 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Open</span>
+                        </a>
+                      ) : null}
                     </div>
                   </div>
 
-                  {/* Shared URL */}
                   <div className="p-3 bg-white border border-gray-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center space-x-2">
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">Shared Preview</span>
-                        <span className="text-xs text-gray-500">Public Production Preview Link</span>
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">Local server</span>
+                        <span className="text-xs text-gray-500">npm run dev</span>
                       </div>
                       <div className="text-xs font-mono font-bold text-gray-800 mt-1 truncate">
-                        {serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                        {serverStatus?.urls?.localUrl || 'http://localhost:3000'}
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 self-end sm:self-auto shrink-0">
                       <button
                         type="button"
-                        onClick={() => handleCopy(serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app', 'sharedUrl')}
+                        onClick={() => handleCopy(serverStatus?.urls?.localUrl || 'http://localhost:3000', 'localUrl')}
                         className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[11px] rounded-lg flex items-center space-x-1"
                       >
-                        {copiedKey === 'sharedUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedKey === 'sharedUrl' ? 'Copied' : 'Copy'}</span>
+                        {copiedKey === 'localUrl' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedKey === 'localUrl' ? 'Copied' : 'Copy'}</span>
                       </button>
                       <a
-                        href={serverStatus?.urls?.sharedUrl || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app'}
+                        href={serverStatus?.urls?.localUrl || 'http://localhost:3000'}
                         target="_blank"
                         rel="noreferrer"
                         className="px-2.5 py-1.5 bg-darkblue hover:bg-opacity-90 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1"

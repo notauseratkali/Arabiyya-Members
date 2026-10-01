@@ -43,7 +43,7 @@ export default defineConfig(() => {
             const inPkg = (name: string) => norm.includes(`/node_modules/${name}/`);
             if (inPkg('firebase') || inPkg('@firebase')) return 'vendor-firebase';
             if (inPkg('lucide-react')) return 'vendor-icons';
-            if (inPkg('jspdf') || inPkg('jspdf-autotable') || inPkg('xlsx')) return 'vendor-utils';
+            if (inPkg('jspdf') || inPkg('jspdf-autotable') || inPkg('exceljs')) return 'vendor-utils';
             if (norm.includes('/src/pages/')) {
               const pageName = norm.split('/src/pages/')[1].split('.')[0].toLowerCase();
               return `page-${pageName}`;

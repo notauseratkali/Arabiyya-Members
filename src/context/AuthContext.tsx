@@ -22,6 +22,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Fields the browser may mirror onto users/{uid}. Passwords and privilege flags stay on the server. */
+function firestoreSafeUser(data: Record<string, any>) {
+  const copy = { ...data };
+  delete copy.password;
+  delete copy.passwordHash;
+  delete copy.isAdmin;
+  if (copy.role === 'Admin' || copy.role === 'Secretary') {
+    delete copy.role;
+  }
+  return copy;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
@@ -117,10 +129,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 needsUpdate = true;
               }
               if (needsUpdate) {
-                await setDoc(userDocRef, { 
-                  isAdmin: true, 
-                  role: newRole
-                }, { merge: true });
+                await setDoc(userDocRef, firestoreSafeUser({ ...data, role: data.role }), { merge: true }).catch(err => {
+                  console.warn('Firestore user profile sync warning:', err);
+                });
               }
             }
             setUser(data);
@@ -144,7 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isAdmin: isAdmin ? true : undefined
             };
 
-            await setDoc(userDocRef, fallbackUser, { merge: true });
+            await setDoc(userDocRef, firestoreSafeUser(fallbackUser), { merge: true });
             setUser(fallbackUser);
             safeStorage.setItem('arabiyya_auth_user', JSON.stringify(fallbackUser));
           }
@@ -173,7 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Also persist user profile to Firestore
     try {
       const userRef = doc(db, 'users', userData.id || userData.username);
-      setDoc(userRef, userData, { merge: true }).catch(err => {
+      setDoc(userRef, firestoreSafeUser(userData), { merge: true }).catch(err => {
         console.warn('Firestore user profile sync warning:', err);
       });
     } catch (e) {
@@ -211,7 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const docId = merged.id || merged.idCardNumber || merged.username || 'admin';
         const userRef = doc(db, 'users', docId);
-        setDoc(userRef, merged, { merge: true }).catch(err => {
+        setDoc(userRef, firestoreSafeUser(merged), { merge: true }).catch(err => {
           console.warn('Firestore user update warning:', err);
         });
       } catch (e) {

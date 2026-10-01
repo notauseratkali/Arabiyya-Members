@@ -151,7 +151,7 @@ function resolveLogoAsset(): LogoResolution {
   }
 
   // 4. Fallback to public URL
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
   return {
     src: `${appUrl}/logo.png`
   };
@@ -603,7 +603,7 @@ export async function sendLeaderApplicationNotification(
 
   const secName = getSecretaryName();
   const subject = `[Council Alert] New Leader Candidate Registration: ${leaderApp.fullName} (${leaderApp.idCardNumber})`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const html = wrapEmailHtml({
     title: 'New Leader Candidate Alert',
@@ -666,7 +666,7 @@ export async function sendMemberApplicationNotification(
 
   const secName = getSecretaryName();
   const subject = `[Council Alert] New Join Request: ${memberApp.fullName} (${memberApp.idCardNumber})`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const html = wrapEmailHtml({
     title: 'New Join Request Alert',
@@ -733,7 +733,7 @@ export async function sendMemberWelcomeConfirmation(memberApp: {
 }): Promise<{ success: boolean; simulated?: boolean; error?: string }> {
   const secName = getSecretaryName();
   const subject = `[Arabiyya Rovers] Membership Registration Received: ${memberApp.fullName}`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
   const trackUrl = `${appUrl}/track`;
   const displayName = memberApp.commonName || memberApp.fullName.split(' ')[0] || memberApp.fullName;
   
@@ -801,7 +801,7 @@ export async function sendEventAnnouncementEmail(
 
   const secName = getSecretaryName();
   const subject = `📢 [Event Notice] ${event.name} - Arabiyya Rovers`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const html = wrapEmailHtml({
     title: event.name,
@@ -863,7 +863,7 @@ export async function sendEventUpdateEmail(
 
   const secName = getSecretaryName();
   const subject = `⚠️ [Event Updated] ${event.name} - Arabiyya Rovers`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const html = wrapEmailHtml({
     title: `Updated: ${event.name}`,
@@ -920,7 +920,7 @@ export async function sendEventUpdateEmail(
 export async function sendTestEmail(recipientEmail: string): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
   const secName = getSecretaryName();
   const subject = '🧪 [Test Email] Arabiyya Rovers SMTP Mail Server Connection';
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
 
   const html = wrapEmailHtml({
     title: 'SMTP Test Dispatch',
@@ -1068,7 +1068,7 @@ export async function sendWelcomeEmail(member: {
 }): Promise<{ success: boolean; simulated?: boolean; error?: string }> {
   const secName = getSecretaryName();
   const subject = `⚜️ [Arabiyya Rovers] Welcome to the Crew, ${member.fullName}!`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
   const displayName = member.commonName || member.fullName.split(' ')[0] || member.fullName;
 
   const html = wrapEmailHtml({
@@ -1122,7 +1122,7 @@ export async function sendWelcomeBackEmail(member: {
 }): Promise<{ success: boolean; simulated?: boolean; error?: string }> {
   const secName = getSecretaryName();
   const subject = `⚜️ [Arabiyya Rovers] Welcome Back to the Crew, ${member.fullName}!`;
-  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'https://ais-pre-3p7277s77hvbctq7twyfeq-778604401758.asia-southeast1.run.app';
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
   const displayName = member.commonName || member.fullName.split(' ')[0] || member.fullName;
 
   const html = wrapEmailHtml({

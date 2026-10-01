@@ -828,14 +828,16 @@ export const MembersPage: React.FC<MembersPageProps> = ({ onNavigate }) => {
         onSuccess={fetchMembers}
       />
 
-      <MemberDetailsModal
-        member={selectedMember}
-        onClose={() => setSelectedMember(null)}
-        isSecretary={isSecretary}
-        onDeleteMember={handleRequestDeleteMember}
-        onStatusUpdated={fetchMembers}
-        calculateTimeRemainingForAward={calculateTimeRemainingForAward}
-      />
+      {selectedMember && (
+        <MemberDetailsModal
+          member={selectedMember}
+          onClose={() => setSelectedMember(null)}
+          isSecretary={isSecretary}
+          onDeleteMember={handleRequestDeleteMember}
+          onStatusUpdated={fetchMembers}
+          calculateTimeRemainingForAward={calculateTimeRemainingForAward}
+        />
+      )}
 
       {/* Delete Confirmation Modal for Single Member */}
       <DeleteConfirmationModal

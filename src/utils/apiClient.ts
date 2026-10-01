@@ -1,11 +1,6 @@
 import { db } from '../lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { INITIAL_ROVER_POLICY } from '../data/policyData';
-
-function withoutSecrets(member: Record<string, any>) {
-  const { password, passwordHash, ...safe } = member;
-  return safe;
-}
 
 export async function handleClientApiFallback(url: string, options?: RequestInit): Promise<Response> {
   const method = (options?.method || 'GET').toUpperCase();
@@ -20,29 +15,15 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
     });
   }
 
-  // 2. Settings
+  // 2. Settings — do not read the settings collection. Rules deny it because it holds secrets.
   if (url.includes('/api/admin/settings') || url.includes('/api/settings')) {
     if (method === 'GET') {
-      try {
-        const snap = await getDoc(doc(db, 'settings', 'config'));
-        if (snap.exists()) {
-          const data = { ...(snap.data() as Record<string, unknown>) };
-          delete data.sso_api_key;
-          delete data.smtp;
-          delete data.telegram_bot;
-          return new Response(JSON.stringify(data), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-      } catch {
-        // ignore
-      }
       return new Response(JSON.stringify({
         siteTitle: 'Arabiyya Members',
-        admin_roles: [],
-        telegram_bot: {},
-        smtp: {}
+        group_logo: '/logo.svg',
+        event_types: [],
+        supported_apps: [],
+        admin_roles: []
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -50,24 +31,14 @@ export async function handleClientApiFallback(url: string, options?: RequestInit
     }
   }
 
-  // 3. Members list
+  // 3. Members list — passwords live in member_applications, which clients cannot read.
   if (url.includes('/api/members') && method === 'GET') {
-    try {
-      const snap = await getDocs(collection(db, 'member_applications'));
-      const list: any[] = [];
-      snap.forEach(docSnap => {
-        list.push(withoutSecrets({ id: docSnap.id, ...docSnap.data() }));
-      });
-      return new Response(JSON.stringify(list), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch {
-      return new Response(JSON.stringify([]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    return new Response(JSON.stringify({
+      error: 'The membership server is unreachable, so the member directory cannot be loaded.'
+    }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   // 4. Policies

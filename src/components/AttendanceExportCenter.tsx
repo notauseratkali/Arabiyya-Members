@@ -116,7 +116,7 @@ export const AttendanceExportCenter: React.FC<AttendanceExportCenterProps> = ({
           downloadEventAttendancePDF(data);
           setSuccessMsg(`PDF Report for event "${currentEvent.name}" generated successfully!`);
         } else if (format === 'xlsx') {
-          downloadEventAttendanceXLSX(data);
+          await downloadEventAttendanceXLSX(data);
           setSuccessMsg(`Excel Workbook (.xlsx) for event "${currentEvent.name}" generated successfully!`);
         } else if (format === 'csv') {
           downloadEventAttendanceCSV(data);
@@ -139,7 +139,7 @@ export const AttendanceExportCenter: React.FC<AttendanceExportCenterProps> = ({
           downloadMemberAttendancePDF(data);
           setSuccessMsg(`Individual PDF Attendance Report for "${currentMember.fullName}" generated successfully!`);
         } else if (format === 'xlsx') {
-          downloadMemberAttendanceXLSX(data);
+          await downloadMemberAttendanceXLSX(data);
           setSuccessMsg(`Excel Workbook (.xlsx) for "${currentMember.fullName}" generated successfully!`);
         } else if (format === 'csv') {
           downloadMemberAttendanceCSV(data);
@@ -157,7 +157,7 @@ export const AttendanceExportCenter: React.FC<AttendanceExportCenterProps> = ({
           downloadMasterSheetPDF(data);
           setSuccessMsg('Attendance Master Sheet PDF generated successfully!');
         } else if (format === 'xlsx') {
-          downloadMasterSheetXLSX(data);
+          await downloadMasterSheetXLSX(data);
           setSuccessMsg('Attendance Master Sheet Excel Workbook (.xlsx) generated successfully!');
         } else if (format === 'csv') {
           downloadMasterSheetCSV(data);

@@ -1,107 +1,100 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
+    // The API server uses the Firebase Admin SDK and bypasses these rules.
+    // Browser clients must not read or write passwords, OTPs, applications, or settings.
+
+    function signedInOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
 
-    // Helper function to check if user is admin
-    function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.role == 'Admin' || 
-         request.auth.token.role == 'Secretary' || 
-         request.auth.token.email == 'admin@arabiyyarovers.net' ||
-         request.auth.token.email == 'it@arabiyyascouts.org' ||
-         request.auth.token.email == 'nazihnafiz@gmail.com' ||
-         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Secretary' ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.idCardNumber == 'A000000'));
+    function noPrivilegeFields() {
+      return !request.resource.data.keys().hasAny(['password', 'passwordHash', 'isAdmin']);
     }
 
-    // Users Collection
+    function roleNotEscalated() {
+      return !('role' in request.resource.data)
+        || (
+          request.resource.data.role != 'Admin'
+          && request.resource.data.role != 'Secretary'
+        )
+        || (
+          resource != null
+          && resource.data.role == request.resource.data.role
+        );
+    }
+
+    // Owner profile mirror. Privilege and password fields are server-only.
     match /users/{userId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read: if signedInOwner(userId);
+      allow create, update: if signedInOwner(userId) && noPrivilegeFields() && roleNotEscalated();
+      allow delete: if false;
     }
 
-    // Member Applications Collection
-    match /member_applications/{appId} {
-      allow create: if true;
-      allow read, update, delete: if true;
-    }
-
-    // Leader Applications Collection
-    match /leader_applications/{appId} {
-      allow create: if true;
-      allow read, update, delete: if true;
-    }
-
-    // Events Collection
-    match /events/{eventId} {
-      allow read: if true;
-      allow write: if isAuthenticated() || true;
-    }
-
-    // Attendance Collection
-    match /attendance/{attendanceId} {
-      allow read, write: if true;
-    }
-
-    // Settings Collection
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isAuthenticated() || true;
-    }
-
-    // Announcements Collection
-    match /announcements/{annId} {
-      allow read, write: if true;
-    }
-
-    // Announcement Presets Collection
-    match /announcement_presets/{presetId} {
-      allow read, write: if true;
-    }
-
-    // Meeting Minutes Collection
-    match /meeting_minutes/{minId} {
-      allow read, write: if true;
-    }
-
-    // Profile Update Requests Collection
-    match /profile_update_requests/{reqId} {
-      allow read, write: if true;
-    }
-    // Invitations Collection
-    match /invitations/{invitationId} {
-      allow read, write: if true;
-    }
-
-    // Policies Collection
+    // Published crew policy is public. Writes go through the API.
     match /policies/{policyId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // OTPs Collection
     match /otps/{otpId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
-    // Members Collection
+    match /member_applications/{appId} {
+      allow read, write: if false;
+    }
+
+    match /leader_applications/{appId} {
+      allow read, write: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if false;
+    }
+
     match /members/{memberId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
-    // Log Book Entries Collection
+    match /invitations/{invitationId} {
+      allow read, write: if false;
+    }
+
+    match /profile_update_requests/{reqId} {
+      allow read, write: if false;
+    }
+
+    match /events/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /attendance/{attendanceId} {
+      allow read, write: if false;
+    }
+
+    match /announcements/{annId} {
+      allow read, write: if false;
+    }
+
+    match /announcement_presets/{presetId} {
+      allow read, write: if false;
+    }
+
+    match /meeting_minutes/{minId} {
+      allow read, write: if false;
+    }
+
     match /logbook_entries/{entryId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
-    // System Health & Diagnostics Collection
     match /system_health/{healthId} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
